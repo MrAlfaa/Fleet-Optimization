@@ -1,0 +1,39 @@
+{
+    "feature_columns": [
+        "agent_age_num",
+        "agent_rating_num",
+        "distance_km",
+        "hour",
+        "day_of_week",
+        "month",
+        "is_weekend",
+        "weather",
+        "traffic",
+        "vehicle",
+        "area",
+        "category"
+    ],
+    "numeric_features": [
+        "agent_age_num",
+        "agent_rating_num",
+        "distance_km",
+        "hour",
+        "day_of_week",
+        "month",
+        "is_weekend"
+    ],
+    "categorical_features": [
+        "weather",
+        "traffic",
+        "vehicle",
+        "area",
+        "category"
+    ],
+    "sample_prediction_output": {
+        "predicted_eta_minutes": 157.71,
+        "delay_probability": 0.412,
+        "delay_prediction": 0,
+        "delay_risk_level": "Medium",
+        "route_cost_score": 177.21
+    }
+}

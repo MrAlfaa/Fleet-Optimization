@@ -1,0 +1,18 @@
+{
+    "baseline_prophet": {
+        "mae": 4.348191292476057,
+        "rmse": 7.4740923884579535,
+        "mape": 89.75160251897876
+    },
+    "graph_enhanced_prophet": {
+        "mae": 6.53354241645295,
+        "rmse": 8.66850502658066,
+        "mape": 190.02876513431616
+    },
+    "configuration": {
+        "top_n_zones": 10,
+        "test_days": 30,
+        "k_neighbors": 3,
+        "alpha_spatial_influence": 0.25
+    }
+}

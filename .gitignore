@@ -1,0 +1,75 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# User-requested project asset folders
+docs/
+Docs/
+Document/
+Documents/
+UI Designs/
+UI_Designs/
+Data_Sets/
+Datasets/
+datasets/
+
+# Python / FastAPI
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+ENV/
+
+# Node / React
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+Fleet_Mobile_App/frontend/build/
+Fleet_Mobile_App/frontend/.dart_tool/
+
+# Android / Gradle
+.gradle/
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+*.apk
+*.aab
+
+# ML/data artifacts and large generated files
+*.joblib
+*.pkl
+*.pickle
+*.parquet
+*.feather
+*.csv
+*.xlsx
+*.zip
+
+# Logs and OS/editor files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,202 @@
+{
+    "SP_sao_paulo": [
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.34686918282233514,
+            "distance_km": 350.6814542312252,
+            "correlation": 0.821151536413265
+        },
+        {
+            "neighbor": "MG_belo_horizonte",
+            "weight": 0.3346572727428935,
+            "distance_km": 491.81539453579217,
+            "correlation": 0.793313321345194
+        },
+        {
+            "neighbor": "DF_brasilia",
+            "weight": 0.3184735444347714,
+            "distance_km": 872.1530468160382,
+            "correlation": 0.7561280259477234
+        }
+    ],
+    "RJ_rio_de_janeiro": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.36240886488859747,
+            "distance_km": 350.6814542312252,
+            "correlation": 0.821151536413265
+        },
+        {
+            "neighbor": "MG_belo_horizonte",
+            "weight": 0.33433491547196065,
+            "distance_km": 340.73096057426585,
+            "correlation": 0.7570865540844861
+        },
+        {
+            "neighbor": "DF_brasilia",
+            "weight": 0.3032562196394418,
+            "distance_km": 929.0567768344496,
+            "correlation": 0.6890788159081017
+        }
+    ],
+    "MG_belo_horizonte": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.36209117816322767,
+            "distance_km": 491.81539453579217,
+            "correlation": 0.793313321345194
+        },
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.3462312906892063,
+            "distance_km": 340.73096057426585,
+            "correlation": 0.7570865540844861
+        },
+        {
+            "neighbor": "DF_brasilia",
+            "weight": 0.29167753114756595,
+            "distance_km": 622.5554530667122,
+            "correlation": 0.6390888327494509
+        }
+    ],
+    "DF_brasilia": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.3626001685825914,
+            "distance_km": 872.1530468160382,
+            "correlation": 0.7561280259477234
+        },
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.33046940755401694,
+            "distance_km": 929.0567768344496,
+            "correlation": 0.6890788159081017
+        },
+        {
+            "neighbor": "MG_belo_horizonte",
+            "weight": 0.30693042386339164,
+            "distance_km": 622.5554530667122,
+            "correlation": 0.6390888327494509
+        }
+    ],
+    "PR_curitiba": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.3595155704063134,
+            "distance_km": 337.9690859769575,
+            "correlation": 0.5995456937776401
+        },
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.32861115911684535,
+            "distance_km": 668.6880934754413,
+            "correlation": 0.5498129300985645
+        },
+        {
+            "neighbor": "MG_belo_horizonte",
+            "weight": 0.31187327047684116,
+            "distance_km": 821.7555308856915,
+            "correlation": 0.5221106955647138
+        }
+    ],
+    "SP_campinas": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.3607659202224403,
+            "distance_km": 85.1061715670333,
+            "correlation": 0.6881002309164322
+        },
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.3313656152451026,
+            "distance_km": 387.453549841139,
+            "correlation": 0.6441633328639407
+        },
+        {
+            "neighbor": "MG_belo_horizonte",
+            "weight": 0.3078684645324571,
+            "distance_km": 463.18115775654104,
+            "correlation": 0.598841833789262
+        }
+    ],
+    "RS_porto_alegre": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.34707668688072113,
+            "distance_km": 849.4550976614709,
+            "correlation": 0.6283218311508028
+        },
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.34305571724009665,
+            "distance_km": 1115.3469219283486,
+            "correlation": 0.6214422262516683
+        },
+        {
+            "neighbor": "DF_brasilia",
+            "weight": 0.3098675958791823,
+            "distance_km": 1615.6244235340607,
+            "correlation": 0.5616080735044775
+        }
+    ],
+    "BA_salvador": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.35316280219105256,
+            "distance_km": 1460.424265732125,
+            "correlation": 0.6297835718058684
+        },
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.335375279383668,
+            "distance_km": 1218.7182092378048,
+            "correlation": 0.5978085772325564
+        },
+        {
+            "neighbor": "MG_belo_horizonte",
+            "weight": 0.3114619184252795,
+            "distance_km": 969.3584667661569,
+            "correlation": 0.5547791421376452
+        }
+    ],
+    "SP_guarulhos": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.40772436164690856,
+            "distance_km": 18.82120244341043,
+            "correlation": 0.6058499734038608
+        },
+        {
+            "neighbor": "MG_belo_horizonte",
+            "weight": 0.3000429217236653,
+            "distance_km": 473.3624742846823,
+            "correlation": 0.4983708213083823
+        },
+        {
+            "neighbor": "DF_brasilia",
+            "weight": 0.29223271662942624,
+            "distance_km": 861.6072911918274,
+            "correlation": 0.48673899623480005
+        }
+    ],
+    "SP_sao_bernardo_do_campo": [
+        {
+            "neighbor": "SP_sao_paulo",
+            "weight": 0.3900232317360121,
+            "distance_km": 18.292264197085252,
+            "correlation": 0.6200235508027011
+        },
+        {
+            "neighbor": "RJ_rio_de_janeiro",
+            "weight": 0.30694587553616376,
+            "distance_km": 345.54164381896135,
+            "correlation": 0.5448160719413487
+        },
+        {
+            "neighbor": "DF_brasilia",
+            "weight": 0.3030308927278241,
+            "distance_km": 889.4060436954187,
+            "correlation": 0.5404557926364874
+        }
+    ]
+}

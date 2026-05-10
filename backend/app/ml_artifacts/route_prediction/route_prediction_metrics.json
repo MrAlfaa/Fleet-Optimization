@@ -1,0 +1,19 @@
+{
+    "eta_model": {
+        "mae": 17.201506306659592,
+        "rmse": 22.04676141493334,
+        "r2": 0.8180280280506281
+    },
+    "delay_model": {
+        "accuracy": 0.9202103337905807,
+        "f1_weighted": 0.9191086541754951,
+        "roc_auc": 0.9703806451599551
+    },
+    "dataset": {
+        "source": "Kaggle Amazon Delivery Dataset",
+        "slug": "kaggle_amazon_delivery_dataset",
+        "rows_used": 43739,
+        "delay_threshold_minutes": 160.0,
+        "created_at": "2026-05-09T20:57:24.254621"
+    }
+}
