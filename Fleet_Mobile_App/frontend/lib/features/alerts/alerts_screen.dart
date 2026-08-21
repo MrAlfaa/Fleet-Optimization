@@ -29,6 +29,13 @@ class AlertsScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
+        if (controller.alerts.isEmpty)
+          FleetCard(
+            child: Text(
+              controller.error ?? 'No active backend alerts for this driver.',
+              style: const TextStyle(color: AppColors.muted),
+            ),
+          ),
         ...controller.alerts.map(
           (alert) => Padding(
             padding: const EdgeInsets.only(bottom: 10),
@@ -76,7 +83,19 @@ class AlertsScreen extends StatelessWidget {
                         filled: !alert.acknowledged,
                         onPressed: alert.acknowledged
                             ? null
-                            : () => controller.acknowledgeAlert(alert.id),
+                            : () async {
+                                await controller.acknowledgeAlert(alert.id);
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      controller.error ?? 'Alert acknowledged',
+                                    ),
+                                  ),
+                                );
+                              },
                       ),
                     ],
                   ),

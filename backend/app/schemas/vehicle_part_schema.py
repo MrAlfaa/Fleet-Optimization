@@ -71,3 +71,10 @@ class VehiclePartResponse(BaseModel):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+    is_active: bool = True
+    archived_at: datetime | None = None
+    archived_by: str | None = None
+
+
+class VehiclePartLifecycleRequest(BaseModel):
+    reason: str | None = None

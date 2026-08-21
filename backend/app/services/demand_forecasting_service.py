@@ -44,6 +44,7 @@ from app.utils.demand_utils import (
 )
 from app.utils.object_id import serialize_mongo_list, validate_object_id
 from app.utils.pagination import build_pagination_response, calculate_skip, normalize_pagination
+from app.utils.sri_lanka_zones import DATA_CONTEXT, SRI_LANKA_ZONE_ALIASES, enrich_zone_record, operational_zone_id, source_zone_id
 
 
 DEMAND_ALLOWED_ROLES = ["admin", "fleet_manager", "route_planner"]
@@ -242,7 +243,8 @@ async def list_zones(search: str | None = None, page: int = 1, limit: int = 20) 
     collection = _db()[DEMAND_ZONE_COLLECTION]
     total = await collection.count_documents(query)
     cursor = collection.find(query).sort("zone_id", 1).skip(calculate_skip(page, limit)).limit(limit)
-    return build_pagination_response(serialize_mongo_list(await cursor.to_list(length=limit)), total, page, limit)
+    items = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=limit))]
+    return build_pagination_response(items, total, page, limit)
 
 
 async def list_forecasts(
@@ -256,7 +258,7 @@ async def list_forecasts(
     page, limit = normalize_pagination(page, limit)
     query: dict[str, Any] = {}
     if zone_id:
-        query["zone_id"] = zone_id
+        query["zone_id"] = source_zone_id(zone_id)
     date_filter = _date_range_filter(start_date, end_date)
     if date_filter:
         query["forecast_date"] = date_filter
@@ -274,14 +276,22 @@ async def list_forecasts(
     collection = _db()[DEMAND_FORECAST_COLLECTION]
     total = await collection.count_documents(query)
     cursor = collection.find(query).sort("forecast_date", 1).skip(calculate_skip(page, limit)).limit(limit)
-    return build_pagination_response(serialize_mongo_list(await cursor.to_list(length=limit)), total, page, limit)
+    items = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=limit))]
+    return build_pagination_response(items, total, page, limit)
 
 
 async def get_zone_forecast(zone_id: str, days: int = 30) -> dict[str, Any]:
     days = min(max(days, 1), 365)
-    cursor = _db()[DEMAND_FORECAST_COLLECTION].find({"zone_id": zone_id}).sort("forecast_date", 1).limit(days)
-    items = serialize_mongo_list(await cursor.to_list(length=days))
-    return {"zone_id": zone_id, "days": days, "items": items}
+    source = source_zone_id(zone_id)
+    cursor = _db()[DEMAND_FORECAST_COLLECTION].find({"zone_id": source}).sort("forecast_date", 1).limit(days)
+    items = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=days))]
+    return {
+        "zone_id": operational_zone_id(source),
+        "source_zone_id": source,
+        "days": days,
+        "data_context": DATA_CONTEXT,
+        "items": items,
+    }
 
 
 async def get_fleet_planning_recommendations(
@@ -295,7 +305,7 @@ async def get_fleet_planning_recommendations(
     page, limit = normalize_pagination(page, limit)
     query: dict[str, Any] = {}
     if zone_id:
-        query["zone_id"] = zone_id
+        query["zone_id"] = source_zone_id(zone_id)
     date_filter = _date_range_filter(start_date, end_date)
     if date_filter:
         query["forecast_date"] = date_filter
@@ -307,7 +317,8 @@ async def get_fleet_planning_recommendations(
     collection = _db()[FLEET_RECOMMENDATION_COLLECTION]
     total = await collection.count_documents(query)
     cursor = collection.find(query).sort("forecast_date", 1).skip(calculate_skip(page, limit)).limit(limit)
-    return build_pagination_response(serialize_mongo_list(await cursor.to_list(length=limit)), total, page, limit)
+    items = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=limit))]
+    return build_pagination_response(items, total, page, limit)
 
 
 def _apply_graph_enhancement_to_forecast(baseline_df: pd.DataFrame, adjacency: dict[str, Any], alpha: float = 0.25) -> pd.DataFrame:
@@ -354,10 +365,8 @@ def _forecast_from_model_bundle(days: int) -> pd.DataFrame:
 
     baseline_rows: list[pd.DataFrame] = []
     for zone, model in models.items():
-        future = model.make_future_dataframe(periods=days, freq="D")
-        forecast = model.predict(future)
-        max_history_date = forecast["ds"].max() - pd.Timedelta(days=days)
-        future_forecast = forecast[forecast["ds"] > max_history_date].copy()
+        target_dates = pd.DataFrame({"ds": pd.date_range(start=pd.Timestamp.now(tz="UTC").tz_localize(None).normalize(), periods=days, freq="D")})
+        future_forecast = model.predict(target_dates).copy()
         future_forecast["zone_id"] = zone
         future_forecast["yhat"] = future_forecast["yhat"].clip(lower=0)
         baseline_rows.append(future_forecast[["zone_id", "ds", "yhat"]])
@@ -418,7 +427,8 @@ async def refresh_forecast_from_model(days: int = 30, save_to_database: bool = T
         "planning_records": len(planning_records),
         "alerts_created": alerts_created,
         "model_run_id": str(model_run_id) if model_run_id else None,
-        "items": forecast_records[:50],
+        "items": [enrich_zone_record(record) for record in forecast_records[:50]],
+        "data_context": DATA_CONTEXT,
     }
 
 
@@ -435,8 +445,14 @@ async def get_demand_dashboard_summary() -> dict[str, Any]:
     else:
         next_7_query = {"forecast_date": {"$exists": False}}
 
-    high_zones = await recommendation_collection.distinct("zone_id", {"demand_level": "high"})
-    very_high_zones = await recommendation_collection.distinct("zone_id", {"demand_level": "very_high"})
+    from app.services.operational_demand_service import forecast_vs_actual
+    comparison = await forecast_vs_actual(
+        start_date=window_start.date() if first_forecast else None,
+        end_date=(window_end - timedelta(days=1)).date() if first_forecast else None,
+    )
+    comparison_items = comparison["items"]
+    high_zones = {row["operational_zone_id"] for row in comparison_items if row["demand_level"] == "high"}
+    very_high_zones = {row["operational_zone_id"] for row in comparison_items if row["demand_level"] == "very_high"}
     demand_sum = await forecast_collection.aggregate(
         [{"$match": next_7_query}, {"$group": {"_id": None, "total": {"$sum": "$predicted_demand"}}}]
     ).to_list(length=1)
@@ -451,15 +467,27 @@ async def get_demand_dashboard_summary() -> dict[str, Any]:
             {"$limit": 5},
         ]
     ).to_list(length=5)
+    comparison_totals: dict[str, float] = {}
+    for row in comparison_items:
+        comparison_totals[row["operational_zone_id"]] = comparison_totals.get(row["operational_zone_id"], 0.0) + row["final_predicted_demand"]
+    calibrated_top_zones = [
+        enrich_zone_record({"zone_id": zone_id, "predicted_demand": total})
+        for zone_id, total in sorted(comparison_totals.items(), key=lambda item: item[1], reverse=True)[:5]
+    ]
     return {
-        "total_zones": await db[DEMAND_ZONE_COLLECTION].count_documents({"is_active": True}),
+        "total_zones": len(SRI_LANKA_ZONE_ALIASES),
         "forecast_records": await forecast_collection.count_documents({}),
         "high_demand_zones": len(high_zones),
         "very_high_demand_zones": len(very_high_zones),
-        "total_predicted_demand_next_7_days": demand_sum[0]["total"] if demand_sum else 0,
-        "total_required_vehicles_next_7_days": vehicles_sum[0]["total"] if vehicles_sum else 0,
-        "top_demand_zones": [{"zone_id": row["_id"], "predicted_demand": row["predicted_demand"]} for row in top_zones],
+        "total_predicted_demand_next_7_days": sum(row["final_predicted_demand"] for row in comparison_items) if comparison_items else (demand_sum[0]["total"] if demand_sum else 0),
+        "total_required_vehicles_next_7_days": sum(row["estimated_required_vehicles"] for row in comparison_items) if comparison_items else (vehicles_sum[0]["total"] if vehicles_sum else 0),
+        "top_demand_zones": calibrated_top_zones or [
+            enrich_zone_record({"zone_id": row["_id"], "predicted_demand": row["predicted_demand"]})
+            for row in top_zones
+        ],
         "latest_forecast_date": latest["forecast_date"].isoformat() if latest else None,
+        "data_context": DATA_CONTEXT,
+        "data_context_note": "Sri Lanka demo scenario mapped from Olist-derived forecasting outputs; model has not been retrained using Sri Lankan demand data.",
     }
 
 
@@ -468,15 +496,32 @@ async def get_latest_forecast_summary() -> dict[str, Any]:
 
 
 async def get_zone_adjacency_graph() -> dict[str, Any]:
-    return load_zone_adjacency_graph()
+    graph = load_zone_adjacency_graph()
+    return {
+        operational_zone_id(zone): [
+            {**neighbor, "source_zone_id": neighbor.get("neighbor"), "neighbor": operational_zone_id(str(neighbor.get("neighbor")))}
+            for neighbor in neighbors
+        ]
+        for zone, neighbors in graph.items()
+    }
 
 
-async def export_forecasts_as_csv() -> str:
-    cursor = _db()[DEMAND_FORECAST_COLLECTION].find({}).sort([("zone_id", 1), ("forecast_date", 1)])
-    rows = serialize_mongo_list(await cursor.to_list(length=10000))
+async def export_forecasts_as_csv(zone_id: str | None = None, start_date: str | None = None, end_date: str | None = None) -> str:
+    query: dict[str, Any] = {}
+    if zone_id:
+        query["zone_id"] = source_zone_id(zone_id)
+    if start_date or end_date:
+        query["forecast_date"] = {}
+        if start_date:
+            query["forecast_date"]["$gte"] = parse_forecast_date(start_date)
+        if end_date:
+            query["forecast_date"]["$lte"] = parse_forecast_date(end_date)
+    cursor = _db()[DEMAND_FORECAST_COLLECTION].find(query).sort([("zone_id", 1), ("forecast_date", 1)])
+    rows = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=10000))]
     output = StringIO()
     if not rows:
         pd.DataFrame(columns=["zone_id", "forecast_date", "predicted_demand", "model_type"]).to_csv(output, index=False)
     else:
-        pd.DataFrame(rows).to_csv(output, index=False)
+        from app.utils.report_utils import safe_spreadsheet_value
+        pd.DataFrame(rows).map(safe_spreadsheet_value).to_csv(output, index=False)
     return output.getvalue()

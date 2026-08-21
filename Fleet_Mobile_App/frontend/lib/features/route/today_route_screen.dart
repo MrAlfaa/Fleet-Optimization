@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/fleetopt_driver_app.dart';
 import '../../core/theme/app_theme.dart';
+import '../../services/map_navigation_service.dart';
 import '../../widgets/fleet_widgets.dart';
 import 'stop_detail_screen.dart';
 
@@ -11,6 +12,35 @@ class TodayRouteScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
+    if (!controller.route.hasAssignedRoute) {
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          FleetCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StatusPill(label: 'WAITING', color: AppColors.warning),
+                const SizedBox(height: 14),
+                Text(
+                  'No dispatched route assigned',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  controller.error ??
+                      'Route plans assigned to this driver from the backend dispatch workflow will be listed here.',
+                  style: const TextStyle(color: AppColors.muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    final nextStop = controller.route.nextStop;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -99,6 +129,79 @@ class TodayRouteScreen extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 14),
+        if (nextStop != null) ...[
+          FleetCard(
+            child: InkWell(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => StopDetailScreen(stopId: nextStop.id),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      StatusPill(label: 'NEXT STOP', color: AppColors.success),
+                      const Spacer(),
+                      Text(
+                        nextStop.eta,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    nextStop.customer,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${nextStop.address}\n${nextStop.zone}',
+                    style: const TextStyle(color: AppColors.muted),
+                  ),
+                  const SizedBox(height: 12),
+                  FleetButton(
+                    label: 'Start navigation to next parcel',
+                    icon: Icons.navigation_rounded,
+                    onPressed: () async {
+                      final opened = await GoogleMapsNavigation.openStop(
+                        nextStop,
+                      );
+                      if (!context.mounted || opened) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Unable to open navigation.'),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+        FleetButton(
+          label: 'Open full route in Google Maps',
+          icon: Icons.map_outlined,
+          onPressed: () async {
+            final opened = await GoogleMapsNavigation.openRoute(
+              controller.route,
+            );
+            if (!context.mounted || opened) {
+              return;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Unable to open the full route in Google Maps.'),
+              ),
+            );
+          },
+        ),
         const SizedBox(height: 16),
         Text(
           'Stop order',
@@ -147,8 +250,12 @@ class TodayRouteScreen extends StatelessWidget {
                       ),
                     ),
                     StatusPill(
-                      label: deliveryStatusLabel(stop.status),
-                      color: deliveryStatusColor(stop.status),
+                      label: stop.id == nextStop?.id
+                          ? 'NEXT'
+                          : deliveryStatusLabel(stop.status),
+                      color: stop.id == nextStop?.id
+                          ? AppColors.success
+                          : deliveryStatusColor(stop.status),
                     ),
                   ],
                 ),

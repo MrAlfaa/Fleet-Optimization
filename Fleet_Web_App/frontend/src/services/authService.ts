@@ -1,52 +1,73 @@
-import { demoUser } from '../data/mockData'
 import type { User, UserRole } from '../types'
-
-const SESSION_KEY = 'fleetopt.session.v1'
+import { apiClient } from './apiClient'
+import { clearStoredSession, getStoredSession, saveStoredSession } from './sessionStore'
 
 interface AuthPayload {
   email: string
   password: string
-  role?: UserRole
-  organization?: string
 }
 
-const persist = (user: User) => {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user))
+interface BackendUser {
+  id: string
+  full_name?: string
+  name?: string
+  email: string
+  role: UserRole
+  organization?: string
+  permissions?: string[]
+}
+
+interface TokenPayload {
+  access_token: string
+  token_type: string
+  user: BackendUser
+}
+
+const mapUser = (user: BackendUser): User => {
+  return {
+    id: user.id,
+    name: user.full_name || user.name || 'FleetOpt User',
+    email: user.email,
+    role: user.role,
+    organization: user.organization || 'FleetOpt AI',
+    permissions: user.permissions ?? [],
+  }
+}
+
+const persistToken = (payload: TokenPayload) => {
+  const user = mapUser(payload.user)
+  saveStoredSession({
+    accessToken: payload.access_token,
+    tokenType: payload.token_type || 'bearer',
+    user,
+  })
   return user
 }
 
 export const authService = {
   getSession(): User | null {
-    const raw = localStorage.getItem(SESSION_KEY)
-    if (!raw) return null
-    try {
-      return JSON.parse(raw) as User
-    } catch {
-      localStorage.removeItem(SESSION_KEY)
-      return null
-    }
+    return getStoredSession()?.user ?? null
   },
-  login(payload: AuthPayload): Promise<User> {
-    const user: User = {
-      ...demoUser,
-      email: payload.email || demoUser.email,
-      role: payload.role ?? demoUser.role,
-      organization: payload.organization || demoUser.organization,
-    }
-    return Promise.resolve(persist(user))
+  async restoreSession(): Promise<User | null> {
+    if (!getStoredSession()) return null
+    const user = await apiClient.get<BackendUser>('/auth/me')
+    const session = getStoredSession()
+    if (!session) return null
+    saveStoredSession({ ...session, user: mapUser(user) })
+    return mapUser(user)
   },
-  register(payload: AuthPayload & { name: string }): Promise<User> {
-    const user: User = {
-      ...demoUser,
-      id: `usr-${Date.now()}`,
-      name: payload.name,
-      email: payload.email,
-      role: payload.role ?? 'fleet_manager',
-      organization: payload.organization || 'FleetOpt AI Research Lab',
-    }
-    return Promise.resolve(persist(user))
+  async login(payload: AuthPayload): Promise<User> {
+    const data = await apiClient.post<TokenPayload>(
+      '/auth/login',
+      {
+        email: payload.email,
+        password: payload.password,
+      },
+      { skipAuth: true },
+    )
+    return persistToken(data)
   },
   logout() {
-    localStorage.removeItem(SESSION_KEY)
+    clearStoredSession()
   },
 }

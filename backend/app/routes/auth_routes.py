@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.middleware.auth_middleware import get_current_user
 from app.schemas.auth_schema import ChangePasswordRequest, LoginRequest, RegisterRequest
@@ -11,8 +11,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register")
 async def register(payload: RegisterRequest) -> dict:
-    data = await register_user(payload.model_dump())
-    return success_response("Registration successful", data=data)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Public account registration is disabled; contact an administrator")
 
 
 @router.post("/login")

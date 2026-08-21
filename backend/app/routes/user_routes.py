@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.middleware.auth_middleware import get_current_user, require_admin, require_roles
-from app.schemas.user_schema import UserCreate, UserUpdate
+from app.core.permissions import permission_catalog
+from app.schemas.user_schema import UserCreate, UserPermissionUpdate, UserUpdate
 from app.services.user_service import (
     activate_user,
     create_user,
@@ -9,12 +10,60 @@ from app.services.user_service import (
     get_user_by_id,
     list_users,
     update_user,
+    update_user_permissions,
 )
 from app.utils.response import success_response
 from app.utils.validators import validate_user_role
+from app.schemas.driver_device_schema import DriverAdminCreate, DriverAdminUpdate, DriverDeviceResetRequest
+from app.services.driver_device_service import create_driver_by_admin, list_drivers_for_admin, reset_driver_device, update_driver_by_admin
 
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+
+@router.get("/permissions/catalog")
+async def get_permissions_catalog(_: dict = Depends(require_admin)) -> dict:
+    return success_response("Permission catalog loaded successfully", data=permission_catalog())
+
+
+@router.put("/{user_id}/permissions")
+async def set_user_permissions(
+    user_id: str,
+    payload: UserPermissionUpdate,
+    _: dict = Depends(require_admin),
+) -> dict:
+    data = await update_user_permissions(user_id, payload.permissions)
+    return success_response("User permissions updated successfully", data=data)
+
+
+@router.get("/drivers/manage")
+async def manage_drivers(_: dict = Depends(require_admin)) -> dict:
+    return success_response("Drivers loaded successfully", data=await list_drivers_for_admin())
+
+
+@router.post("/drivers")
+async def create_driver(payload: DriverAdminCreate, _: dict = Depends(require_admin)) -> dict:
+    return success_response("Driver created successfully", data=await create_driver_by_admin(payload.model_dump()))
+
+
+@router.put("/drivers/{driver_id}")
+async def update_driver_admin(driver_id: str, payload: DriverAdminUpdate, _: dict = Depends(require_admin)) -> dict:
+    return success_response("Driver updated successfully", data=await update_driver_by_admin(driver_id, payload.model_dump(exclude_unset=True)))
+
+
+@router.post("/drivers/{driver_id}/reset-device")
+async def reset_device(driver_id: str, payload: DriverDeviceResetRequest, admin: dict = Depends(require_admin)) -> dict:
+    return success_response("Driver device reset successfully", data=await reset_driver_device(driver_id, payload.temporary_password, admin))
+
+
+@router.patch("/drivers/{driver_id}/activate")
+async def activate_driver(driver_id: str, _: dict = Depends(require_admin)) -> dict:
+    return success_response("Driver activated successfully", data=await activate_user(driver_id))
+
+
+@router.patch("/drivers/{driver_id}/deactivate")
+async def deactivate_driver(driver_id: str, _: dict = Depends(require_admin)) -> dict:
+    return success_response("Driver deactivated successfully", data=await deactivate_user(driver_id))
 
 
 @router.get("")
@@ -36,8 +85,9 @@ async def get_users(
 async def get_active_drivers(
     user: dict = Depends(require_roles(["admin", "fleet_manager", "route_planner"])),
 ) -> dict:
-    data = await list_users(role="driver", is_active=True, page=1, limit=100)
-    return success_response("Active drivers loaded successfully", data=data["items"])
+    data = await list_drivers_for_admin()
+    active = [driver for driver in data if driver.get("is_active") and driver.get("device_enrollment_status") == "enrolled"]
+    return success_response("Active enrolled drivers loaded successfully", data=active)
 
 
 @router.post("")

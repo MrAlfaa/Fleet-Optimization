@@ -33,6 +33,7 @@ def build_route_plan_document(data: dict[str, Any]) -> dict[str, Any]:
         "status": data.get("status", "optimized"),
         "demand_context": data.get("demand_context"),
         "maintenance_context": data.get("maintenance_context"),
+        "weather_context": data.get("weather_context"),
         "created_by": data.get("created_by"),
         "created_at": now,
         "updated_at": now,

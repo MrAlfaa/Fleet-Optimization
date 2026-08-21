@@ -8,7 +8,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
       </div>
       {!compact && (
         <div>
-          <div className="text-lg font-extrabold leading-tight tracking-tight text-white">FleetOpt AI</div>
+          <div className="text-lg font-bold leading-tight tracking-normal text-white">FleetOpt AI</div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100/80">
             Logistics Intelligence
           </div>

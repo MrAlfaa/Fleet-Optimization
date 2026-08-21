@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/fleetopt_driver_app.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/fleet_widgets.dart';
 
@@ -11,7 +12,8 @@ class IssueReportScreen extends StatefulWidget {
 }
 
 class _IssueReportScreenState extends State<IssueReportScreen> {
-  String _severity = 'Route issue';
+  String _severity = 'warning';
+  String _category = 'battery';
   final _notes = TextEditingController();
 
   @override
@@ -37,34 +39,28 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'This frontend stores the report locally only. Backend alert sync is a later phase.',
+                  'Issue reports are sent to the backend and converted into driver alerts for fleet staff review.',
                   style: TextStyle(color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  initialValue: _severity,
-                  decoration: const InputDecoration(labelText: 'Issue type'),
+                  initialValue: _category,
+                  decoration: const InputDecoration(labelText: 'Vehicle system'),
                   items: const [
-                    DropdownMenuItem(
-                      value: 'Route issue',
-                      child: Text('Route issue'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Vehicle issue',
-                      child: Text('Vehicle issue'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Customer unavailable',
-                      child: Text('Customer unavailable'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'Emergency',
-                      child: Text('Emergency'),
-                    ),
+                    DropdownMenuItem(value: 'battery', child: Text('Battery')),
+                    DropdownMenuItem(value: 'brakes', child: Text('Brakes')),
+                    DropdownMenuItem(value: 'tires', child: Text('Tires')),
+                    DropdownMenuItem(value: 'motor_drivetrain', child: Text('Motor / drivetrain')),
+                    DropdownMenuItem(value: 'charging', child: Text('Charging')),
+                    DropdownMenuItem(value: 'suspension', child: Text('Suspension')),
+                    DropdownMenuItem(value: 'thermal_system', child: Text('Thermal system')),
+                    DropdownMenuItem(value: 'other', child: Text('Other')),
                   ],
                   onChanged: (value) =>
-                      setState(() => _severity = value ?? _severity),
+                      setState(() => _category = value ?? _category),
                 ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(initialValue: _severity, decoration: const InputDecoration(labelText: 'Severity'), items: const [DropdownMenuItem(value: 'info', child: Text('Low')), DropdownMenuItem(value: 'warning', child: Text('Warning')), DropdownMenuItem(value: 'critical', child: Text('Critical'))], onChanged: (value) => setState(() => _severity = value ?? _severity)),
                 const SizedBox(height: 14),
                 TextField(
                   controller: _notes,
@@ -78,18 +74,48 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
                 ),
                 const SizedBox(height: 16),
                 FleetButton(
-                  label: _severity == 'Emergency'
+                  label: _severity == 'critical'
                       ? 'Send emergency report'
                       : 'Submit report',
                   icon: Icons.send_rounded,
-                  danger: _severity == 'Emergency',
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Mock report captured: $_severity'),
-                      ),
-                    );
-                    Navigator.of(context).pop();
+                  danger: _severity == 'critical',
+                  onPressed: () async {
+                    final controller = AppScope.of(context);
+                    final notes = _notes.text.trim();
+                    if (notes.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Enter issue notes before submitting.'),
+                        ),
+                      );
+                      return;
+                    }
+                    try {
+                      await controller.submitIssue(
+                        title: '${_category.replaceAll('_', ' ')} issue',
+                        message: notes,
+                        severity: _severity,
+                        category: _category,
+                      );
+                      if (!context.mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Issue report sent.')),
+                      );
+                      Navigator.of(context).pop();
+                    } catch (_) {
+                      if (!context.mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            controller.error ?? 'Unable to send issue report.',
+                          ),
+                        ),
+                      );
+                    }
                   },
                 ),
               ],

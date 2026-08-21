@@ -3,7 +3,7 @@ from uuid import uuid4
 
 
 DELIVERY_PRIORITIES = {"low", "medium", "high", "urgent"}
-DELIVERY_STATUSES = {"pending", "assigned", "in_route", "delivered", "failed", "cancelled"}
+DELIVERY_STATUSES = {"pending", "assigned", "in_route", "arrived", "delivered", "failed", "cancelled", "rescheduled"}
 ROUTE_STATUSES = {"draft", "optimized", "dispatched", "in_progress", "completed", "cancelled"}
 ROUTE_RUN_TYPES = {"prediction", "optimization", "manual"}
 

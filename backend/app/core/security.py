@@ -34,12 +34,13 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise ValueError("Invalid or expired access token") from exc
 
 
-def create_token_for_user(user: dict[str, Any]) -> str:
+def create_token_for_user(user: dict[str, Any], extra_claims: dict[str, Any] | None = None, expires_delta: timedelta | None = None) -> str:
     user_id = str(user.get("_id") or user.get("id"))
-    return create_access_token(
-        {
+    payload = {
             "sub": user_id,
             "email": user["email"],
             "role": user["role"],
         }
-    )
+    if extra_claims:
+        payload.update(extra_claims)
+    return create_access_token(payload, expires_delta=expires_delta)

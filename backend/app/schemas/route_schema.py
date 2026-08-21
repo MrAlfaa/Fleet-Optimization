@@ -77,6 +77,7 @@ class RouteOptimizationRequest(BaseModel):
     use_ml_cost: bool = True
     include_demand_context: bool = True
     include_maintenance_context: bool = True
+    include_weather_context: bool = True
     save_route: bool = True
 
     @field_validator("depot_name", "route_name")
@@ -114,6 +115,7 @@ class RoutePlanResponse(BaseModel):
     status: str
     demand_context: dict[str, Any] | None = None
     maintenance_context: dict[str, Any] | None = None
+    weather_context: dict[str, Any] | None = None
     created_by: str | None = None
     created_at: datetime
     updated_at: datetime
