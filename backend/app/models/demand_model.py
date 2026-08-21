@@ -12,6 +12,7 @@ DEMAND_ZONE_COLLECTION = "demand_zones"
 DEMAND_FORECAST_COLLECTION = "demand_forecasts"
 FLEET_RECOMMENDATION_COLLECTION = "fleet_planning_recommendations"
 DEMAND_MODEL_RUN_COLLECTION = "demand_model_runs"
+OPERATIONAL_DEMAND_DAILY_COLLECTION = "operational_demand_daily"
 
 DEMAND_LEVELS = {"low", "medium", "high", "very_high"}
 DEMAND_MODEL_TYPES = {"baseline_prophet", "graph_enhanced_prophet"}
@@ -104,5 +105,11 @@ async def ensure_demand_indexes() -> None:
         )
         await db[FLEET_RECOMMENDATION_COLLECTION].create_index([("demand_level", ASCENDING)], name="fleet_recommendation_level")
         await db[DEMAND_MODEL_RUN_COLLECTION].create_index([("created_at", DESCENDING)], name="demand_model_run_created_at")
+        await db[OPERATIONAL_DEMAND_DAILY_COLLECTION].create_index(
+            [("operational_zone_id", ASCENDING), ("demand_date", ASCENDING)],
+            unique=True,
+            name="unique_operational_zone_demand_date",
+        )
+        await db[OPERATIONAL_DEMAND_DAILY_COLLECTION].create_index([("demand_date", DESCENDING)], name="operational_demand_date")
     except PyMongoError:
         return

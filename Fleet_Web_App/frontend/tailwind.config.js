@@ -18,11 +18,11 @@ export default {
         },
       },
       boxShadow: {
-        card: '0 12px 30px rgba(15, 23, 42, 0.08)',
-        soft: '0 8px 20px rgba(29, 78, 216, 0.12)',
+        card: '0 8px 24px rgba(15, 23, 42, 0.055)',
+        soft: '0 6px 16px rgba(29, 78, 216, 0.14)',
       },
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Inter Variable', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
     },
   },

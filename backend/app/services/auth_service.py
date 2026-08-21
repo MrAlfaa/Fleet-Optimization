@@ -35,6 +35,8 @@ async def authenticate_user(email: str, password: str) -> dict[str, Any]:
 
     if not user.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
+    if user.get("role") == "driver":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Drivers must use the registered mobile device")
 
     await get_user_collection().update_one(
         {"_id": user["_id"]},
@@ -61,6 +63,9 @@ async def get_current_user_from_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
     if not user.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
+    if user.get("role") == "driver":
+        from app.services.driver_device_service import validate_driver_device_claims
+        await validate_driver_device_claims(user, payload)
 
     return safe_user_document(user)
 

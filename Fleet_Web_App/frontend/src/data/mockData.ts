@@ -17,12 +17,17 @@ export const demoUser: User = {
   email: 'manager@fleetopt.ai',
   role: 'fleet_manager',
   organization: 'FleetOpt AI Research Lab',
+  permissions: ['dashboard.view', 'vehicles.view', 'maintenance.view', 'predictive.view', 'readiness.view', 'demand.view', 'deliveries.view', 'routes.view', 'live_trips.view', 'alerts.view', 'reports.view'],
 }
 
 export const vehicles: Vehicle[] = [
   {
     id: 'cab-1024',
     number: 'CAB-1024',
+    registrationNumber: 'WP CAA-1024',
+    vehicleCode: 'CAB-1024',
+    imageUrl: null,
+    category: 'Electric Truck',
     model: 'Freightliner Cascadia',
     type: 'Heavy Truck',
     assignedDriver: 'Nimal Perera',
@@ -34,6 +39,10 @@ export const vehicles: Vehicle[] = [
   {
     id: 'trk-2041',
     number: 'TRK-2041',
+    registrationNumber: 'WP CAB-2041',
+    vehicleCode: 'TRK-2041',
+    imageUrl: null,
+    category: 'Electric Truck',
     model: 'Volvo VNL',
     type: 'Heavy Truck',
     assignedDriver: 'Kasun Silva',
@@ -45,6 +54,10 @@ export const vehicles: Vehicle[] = [
   {
     id: 'van-3810',
     number: 'VAN-3810',
+    registrationNumber: 'WP CAC-3810',
+    vehicleCode: 'VAN-3810',
+    imageUrl: null,
+    category: 'Electric Van',
     model: 'Ford Transit',
     type: 'Light Van',
     assignedDriver: 'Amali Fernando',
@@ -55,6 +68,10 @@ export const vehicles: Vehicle[] = [
   {
     id: 'cab-1028',
     number: 'CAB-1028',
+    registrationNumber: 'WP CAD-1028',
+    vehicleCode: 'CAB-1028',
+    imageUrl: null,
+    category: 'Electric Truck',
     model: 'Peterbilt 579',
     type: 'Heavy Truck',
     assignedDriver: 'Dinesh Kumar',
@@ -66,23 +83,23 @@ export const vehicles: Vehicle[] = [
 ]
 
 export const vehicleParts: VehiclePart[] = [
-  { id: 'engine', vehicleId: 'cab-1024', name: 'Engine', lastService: '12 Oct 2023', failures: 1, risk: 'medium', predictedNext: 'In 14 days', note: 'Combustion timing variance rising under heavy loads.' },
-  { id: 'battery', vehicleId: 'cab-1024', name: 'Battery', lastService: '05 Jan 2024', failures: 0, risk: 'low', predictedNext: 'In 180 days', note: 'Voltage profile stable across recent trips.' },
-  { id: 'brakes', vehicleId: 'cab-1024', name: 'Brake Pads', lastService: '22 May 2023', failures: 2, risk: 'critical', predictedNext: 'Overdue by 5 days', note: 'Critical wear detected through service history baseline.' },
-  { id: 'tires', vehicleId: 'cab-1024', name: 'Tires', lastService: '10 Nov 2023', failures: 0, risk: 'medium', predictedNext: 'In 30 days', note: 'Rear-right tire pressure drift needs inspection.' },
-  { id: 'suspension', vehicleId: 'cab-1024', name: 'Suspension', lastService: '01 Sep 2023', failures: 0, risk: 'low', predictedNext: 'In 120 days', note: 'No abnormal vibration events recorded.' },
-  { id: 'oil', vehicleId: 'cab-1024', name: 'Oil Filter', lastService: '15 Aug 2023', failures: 0, risk: 'medium', predictedNext: 'In 7 days', note: 'Service recommended before high-demand week.' },
-  { id: 'clutch', vehicleId: 'cab-1024', name: 'Clutch', lastService: '12 Feb 2022', failures: 0, risk: 'low', predictedNext: 'In 210 days', note: 'No slip events logged in current cycle.' },
-  { id: 'radiator', vehicleId: 'cab-1024', name: 'Radiator', lastService: '04 Apr 2023', failures: 0, risk: 'low', predictedNext: 'In 95 days', note: 'Temperature curve stable after last service.' },
-  { id: 'lights', vehicleId: 'cab-1024', name: 'Lights', lastService: '20 Dec 2023', failures: 1, risk: 'low', predictedNext: 'In 60 days', note: 'Left unit replaced during last inspection.' },
+  { id: 'engine', vehicleId: 'cab-1024', name: 'Engine', lastService: '12 Oct 2023', failures: 1, risk: 'medium', riskScore: 45, status: 'warning', predictedNext: 'In 14 days', note: 'Combustion timing variance rising under heavy loads.' },
+  { id: 'battery', vehicleId: 'cab-1024', name: 'Battery', lastService: '05 Jan 2024', failures: 0, risk: 'low', riskScore: 12, status: 'healthy', predictedNext: 'In 180 days', note: 'Voltage profile stable across recent trips.' },
+  { id: 'brakes', vehicleId: 'cab-1024', name: 'Brake Pads', lastService: '22 May 2023', failures: 2, risk: 'critical', riskScore: 86, status: 'critical', predictedNext: 'Overdue by 5 days', note: 'Critical wear detected through service history baseline.' },
+  { id: 'tires', vehicleId: 'cab-1024', name: 'Tires', lastService: '10 Nov 2023', failures: 0, risk: 'medium', riskScore: 40, status: 'warning', predictedNext: 'In 30 days', note: 'Rear-right tire pressure drift needs inspection.' },
+  { id: 'suspension', vehicleId: 'cab-1024', name: 'Suspension', lastService: '01 Sep 2023', failures: 0, risk: 'low', riskScore: 9, status: 'healthy', predictedNext: 'In 120 days', note: 'No abnormal vibration events recorded.' },
+  { id: 'oil', vehicleId: 'cab-1024', name: 'Oil Filter', lastService: '15 Aug 2023', failures: 0, risk: 'medium', riskScore: 38, status: 'warning', predictedNext: 'In 7 days', note: 'Service recommended before high-demand week.' },
+  { id: 'clutch', vehicleId: 'cab-1024', name: 'Clutch', lastService: '12 Feb 2022', failures: 0, risk: 'low', riskScore: 8, status: 'healthy', predictedNext: 'In 210 days', note: 'No slip events logged in current cycle.' },
+  { id: 'radiator', vehicleId: 'cab-1024', name: 'Radiator', lastService: '04 Apr 2023', failures: 0, risk: 'low', riskScore: 15, status: 'healthy', predictedNext: 'In 95 days', note: 'Temperature curve stable after last service.' },
+  { id: 'lights', vehicleId: 'cab-1024', name: 'Lights', lastService: '20 Dec 2023', failures: 1, risk: 'low', riskScore: 18, status: 'healthy', predictedNext: 'In 60 days', note: 'Left unit replaced during last inspection.' },
 ]
 
 export const maintenanceRecords: MaintenanceRecord[] = [
-  { id: 'mnt-1', date: 'Oct 24, 2023', vehicle: 'TRK-2041', service: 'Brake Pad Replacement', technician: 'M. Jenkins', cost: '$845.00', status: 'Overdue' },
-  { id: 'mnt-2', date: 'Oct 22, 2023', vehicle: 'VAN-3810', service: 'Transmission Fluid Flush', technician: 'S. Carter', cost: '$320.00', status: 'Overdue' },
-  { id: 'mnt-3', date: 'Oct 20, 2023', vehicle: 'CAB-1024', service: 'PM A-Service', technician: 'J. Davis', cost: '$450.00', status: 'Completed' },
-  { id: 'mnt-4', date: 'Oct 18, 2023', vehicle: 'VAN-118', service: 'Tire Rotation & Balance', technician: 'Ext. Vendor', cost: '$120.00', status: 'Completed' },
-  { id: 'mnt-5', date: 'Oct 15, 2023', vehicle: 'TRK-501', service: 'DEF System Diagnostic', technician: 'M. Jenkins', cost: '$--', status: 'Pending Parts' },
+  { id: 'mnt-1', vehicleId: 'trk-2041', date: 'Oct 24, 2023', vehicle: 'TRK-2041', partName: 'Brake Pads', maintenanceType: 'replacement', priority: 'high', service: 'Brake Pad Replacement', technician: 'M. Jenkins', cost: '$845.00', costValue: 845, status: 'Overdue' },
+  { id: 'mnt-2', vehicleId: 'van-3810', date: 'Oct 22, 2023', vehicle: 'VAN-3810', partName: 'Transmission', maintenanceType: 'fluid flush', priority: 'high', service: 'Transmission Fluid Flush', technician: 'S. Carter', cost: '$320.00', costValue: 320, status: 'Overdue' },
+  { id: 'mnt-3', vehicleId: 'cab-1024', date: 'Oct 20, 2023', vehicle: 'CAB-1024', partName: 'General', maintenanceType: 'preventive', priority: 'medium', service: 'PM A-Service', technician: 'J. Davis', cost: '$450.00', costValue: 450, status: 'Completed' },
+  { id: 'mnt-4', vehicleId: 'van-118', date: 'Oct 18, 2023', vehicle: 'VAN-118', partName: 'Tires', maintenanceType: 'rotation', priority: 'medium', service: 'Tire Rotation & Balance', technician: 'Ext. Vendor', cost: '$120.00', costValue: 120, status: 'Completed' },
+  { id: 'mnt-5', vehicleId: 'trk-501', date: 'Oct 15, 2023', vehicle: 'TRK-501', partName: 'DEF System', maintenanceType: 'diagnostic', priority: 'medium', service: 'DEF System Diagnostic', technician: 'M. Jenkins', cost: '$--', costValue: 0, status: 'Pending Parts' },
 ]
 
 export const deliveries: DeliveryOrder[] = [
@@ -117,10 +134,16 @@ export const routePlan: RoutePlan = {
   capacityUse: 88,
   warning: 'Vehicle VAN-3810 is flagged for overdue brake maintenance. Assign a lower workload route or override with reason.',
   stops: [
-    { sequence: 1, name: 'Warehouse Alpha', eta: '08:15 AM', loadDrop: '--', status: 'Origin' },
-    { sequence: 2, name: 'TechSolutions Inc.', eta: '09:30 AM', loadDrop: '400 kg', status: 'Pending' },
-    { sequence: 3, name: 'Global Retail Hub', eta: '10:45 AM', loadDrop: '1,200 kg', status: 'Pending' },
-    { sequence: 4, name: 'City Center Offices', eta: '11:50 AM', loadDrop: '150 kg', status: 'Pending' },
+    { sequence: 1, name: 'Warehouse Alpha', eta: '08:15 AM', loadDrop: '--', status: 'Origin', latitude: 6.9271, longitude: 79.8612 },
+    { sequence: 2, name: 'TechSolutions Inc.', eta: '09:30 AM', loadDrop: '400 kg', status: 'Pending', latitude: 6.9147, longitude: 79.9729 },
+    { sequence: 3, name: 'Global Retail Hub', eta: '10:45 AM', loadDrop: '1,200 kg', status: 'Pending', latitude: 6.902, longitude: 79.86 },
+    { sequence: 4, name: 'City Center Offices', eta: '11:50 AM', loadDrop: '150 kg', status: 'Pending', latitude: 6.9358, longitude: 79.9842 },
+  ],
+  mapPath: [
+    { latitude: 6.9271, longitude: 79.8612 },
+    { latitude: 6.9147, longitude: 79.9729 },
+    { latitude: 6.902, longitude: 79.86 },
+    { latitude: 6.9358, longitude: 79.9842 },
   ],
 }
 

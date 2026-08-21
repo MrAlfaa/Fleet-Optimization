@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.middleware.auth_middleware import require_roles
@@ -5,6 +7,7 @@ from app.models.delivery_model import DELIVERY_PRIORITIES, DELIVERY_STATUSES
 from app.schemas.delivery_schema import (
     BulkDeliveryOrderCreate,
     DeliveryAssignRequest,
+    DeliveryCancelRequest,
     DeliveryOrderCreate,
     DeliveryOrderUpdate,
     DeliveryStatusUpdateRequest,
@@ -12,6 +15,7 @@ from app.schemas.delivery_schema import (
 from app.services.delivery_service import (
     assign_delivery_to_vehicle,
     bulk_create_delivery_orders,
+    cancel_delivery_order,
     create_delivery_order,
     get_delivery_order_by_id,
     list_delivery_orders,
@@ -32,6 +36,8 @@ async def get_deliveries(
     zone_id: str | None = Query(default=None),
     priority: str | None = Query(default=None),
     assigned_vehicle_id: str | None = Query(default=None),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     _: dict = Depends(require_roles(ROUTE_ALLOWED_ROLES)),
@@ -45,6 +51,8 @@ async def get_deliveries(
         zone_id=zone_id,
         priority=priority,
         assigned_vehicle_id=assigned_vehicle_id,
+        start_date=start_date,
+        end_date=end_date,
         page=page,
         limit=limit,
     )
@@ -108,3 +116,14 @@ async def update_status(
 ) -> dict:
     data = await update_delivery_status(order_id, payload.status)
     return success_response("Delivery order status updated successfully", data=data)
+
+
+@router.post("/{order_id}/cancel")
+async def cancel_delivery(
+    order_id: str,
+    payload: DeliveryCancelRequest,
+    current_user: dict = Depends(require_roles(ROUTE_ALLOWED_ROLES)),
+) -> dict:
+    reason = (payload.reason or "Cancelled by fleet operations").strip()
+    data = await cancel_delivery_order(order_id, reason, current_user)
+    return success_response("Delivery order cancelled successfully", data=data)

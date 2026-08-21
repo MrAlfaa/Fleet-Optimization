@@ -1,9 +1,10 @@
 from collections.abc import Callable
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.services.auth_service import get_current_user_from_token
+from app.core.permissions import permission_for_request
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -21,11 +22,17 @@ async def get_current_user(
 
 
 def require_roles(allowed_roles: list[str]) -> Callable:
-    async def dependency(user: dict = Depends(get_current_user)) -> dict:
+    async def dependency(request: Request, user: dict = Depends(get_current_user)) -> dict:
         if user["role"] not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient role permissions",
+            )
+        required_permission = permission_for_request(request.url.path, request.method)
+        if required_permission and required_permission not in user.get("permissions", []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission required: {required_permission}",
             )
         return user
 

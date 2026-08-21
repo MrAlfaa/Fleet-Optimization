@@ -1,79 +1,18 @@
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../models/driver_models.dart';
+import 'driver_service_contracts.dart';
 
-class MockAuthService {
-  static const _sessionKey = 'fleetopt.driver.session.v1';
-
-  Future<DriverUser?> restoreSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString(_sessionKey);
-    if (email == null) return null;
-    return DriverUser(
-      id: 'drv-001',
-      name: email.contains('sarah') ? 'Sarah Jenkins' : 'Marcus Johnson',
-      email: email,
-      role: 'driver',
-    );
-  }
-
-  Future<DriverUser> login({
-    required String email,
-    required String password,
-  }) async {
-    if (!email.contains('@') || password.length < 6) {
-      throw AuthException(
-        'Use a valid email and at least 6 password characters.',
-      );
-    }
-    return _persist(email);
-  }
-
-  Future<DriverUser> register({
-    required String name,
-    required String email,
-    required String inviteCode,
-    required String password,
-  }) async {
-    if (name.trim().length < 2) {
-      throw AuthException('Enter the driver name.');
-    }
-    if (inviteCode.trim().length < 4) {
-      throw AuthException('Enter a valid fleet invite code.');
-    }
-    if (!email.contains('@') || password.length < 6) {
-      throw AuthException(
-        'Use a valid email and at least 6 password characters.',
-      );
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_sessionKey, email);
-    return DriverUser(
-      id: 'drv-001',
-      name: name.trim(),
-      email: email,
-      role: 'driver',
-    );
-  }
-
-  Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_sessionKey);
-  }
-
-  Future<DriverUser> _persist(String email) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_sessionKey, email);
-    return DriverUser(
-      id: 'drv-001',
-      name: 'Marcus Johnson',
-      email: email,
-      role: 'driver',
-    );
-  }
-}
-
-class AuthException implements Exception {
-  const AuthException(this.message);
-  final String message;
+class MockAuthService implements DriverAuthService {
+  bool enrolled = false;
+  bool pinConfigured = false;
+  @override String? get accessToken => 'mock-token';
+  @override Future<bool> hasEnrollment() async => enrolled;
+  @override Future<bool> requiresPinSetup() async => enrolled && !pinConfigured;
+  @override Future<DriverUser> enroll({required String username, required String temporaryPassword}) async { enrolled = true; return _user(username); }
+  @override Future<void> configurePin(String pin, {required bool enableBiometrics}) async { pinConfigured = true; }
+  @override Future<DriverUser> unlockWithPin(String pin) async => _user('driver.demo');
+  @override Future<DriverUser> unlockWithBiometrics() async => _user('driver.demo');
+  @override Future<bool> canUseBiometrics() async => true;
+  @override Future<void> logout() async {}
+  @override Future<void> clearEnrollment() async { enrolled = false; pinConfigured = false; }
+  DriverUser _user(String username) => DriverUser(id: 'drv-001', name: 'Driver Demo', email: '$username@fleet.local', role: 'driver');
 }

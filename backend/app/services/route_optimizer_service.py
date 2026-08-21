@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -17,12 +18,15 @@ from app.models.user_model import utc_now
 from app.models.vehicle_model import VEHICLE_COLLECTION
 from app.services.alert_service import create_alert
 from app.services.delivery_service import get_raw_delivery_order_by_id, update_delivery_order
+from app.services.fleet_intelligence_service import validate_vehicle_assignment
 from app.services.route_prediction_service import calculate_segment_cost
+from app.services.operational_context_service import get_weather_context
 from app.services.vehicle_service import get_vehicle_by_id
 from app.utils.geo_utils import haversine_distance_km
 from app.utils.object_id import serialize_mongo_list, validate_object_id
 from app.utils.pagination import build_pagination_response, calculate_skip, normalize_pagination
 from app.utils.route_utils import format_optimized_stop_order
+from app.utils.sri_lanka_zones import enrich_zone_record, source_zone_id
 
 
 def _db():
@@ -91,11 +95,12 @@ async def _get_demand_context(points: list[dict[str, Any]]) -> dict[str, Any]:
     zones = sorted({point.get("zone_id") for point in points if point.get("zone_id")})
     if not zones:
         return {"zones": [], "warnings": []}
+    source_zones = sorted({source_zone_id(str(zone)) for zone in zones})
     recommendations = _db()["fleet_planning_recommendations"]
-    cursor = recommendations.find({"zone_id": {"$in": zones}}).sort("forecast_date", 1).limit(25)
-    rows = await cursor.to_list(length=25)
+    cursor = recommendations.find({"zone_id": {"$in": source_zones}}).sort("forecast_date", 1).limit(25)
+    rows = [enrich_zone_record(row) for row in await cursor.to_list(length=25)]
     warnings = [
-        f"{row['demand_level']} demand expected in {row['zone_id']}"
+        f"{row['demand_level']} demand expected in {row['zone_display_name']}"
         for row in rows
         if row.get("demand_level") in ["high", "very_high"]
     ]
@@ -123,7 +128,7 @@ def _segment_input(origin: dict[str, Any], destination: dict[str, Any], priority
         "drop_latitude": destination["latitude"],
         "drop_longitude": destination["longitude"],
         "priority": priority or destination.get("priority"),
-        "weather": "Cloudy",
+        "weather": destination.get("weather_label") or "Cloudy",
         "traffic": "Medium",
         "vehicle_type": "electric_van",
         "area": "urban",
@@ -242,6 +247,7 @@ async def save_route_plan(
             "optimization_method": optimized_result["optimization_method"],
             "demand_context": optimized_result.get("demand_context"),
             "maintenance_context": optimized_result.get("maintenance_context"),
+            "weather_context": optimized_result.get("weather_context"),
             "created_by": created_by,
         }
     )
@@ -257,6 +263,19 @@ async def save_route_plan(
 
 async def optimize_route(request_data: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     points, order_ids = await build_points_from_orders_or_stops(request_data)
+    weather_context = {"available": False, "source": "open_meteo", "warnings": [], "segments_evaluated": 0}
+    if request_data.get("include_weather_context", True):
+        weather_rows = await asyncio.gather(
+            *(get_weather_context(float(point["latitude"]), float(point["longitude"])) for point in points)
+        )
+        for point, weather in zip(points, weather_rows):
+            point["weather_label"] = weather.get("weather_label", "Cloudy")
+        weather_context = {
+            "available": any(row.get("available") for row in weather_rows),
+            "source": "open_meteo",
+            "warnings": list(dict.fromkeys(row["warning"] for row in weather_rows if row.get("warning"))),
+            "segments_evaluated": max(len(points) - 1, 0),
+        }
     demand_context = await _get_demand_context(points) if request_data.get("include_demand_context", True) else None
     maintenance_context = (
         await _get_maintenance_context(request_data.get("vehicle_id"))
@@ -297,6 +316,7 @@ async def optimize_route(request_data: dict[str, Any], current_user: dict[str, A
         warnings.extend(demand_context.get("warnings", []))
     if maintenance_context:
         warnings.extend(maintenance_context.get("warnings", []))
+    warnings.extend(weather_context.get("warnings", []))
 
     optimization_method = "ML-assisted OR-Tools single vehicle" if used_ml else "Distance-based OR-Tools single vehicle"
     result = {
@@ -310,6 +330,7 @@ async def optimize_route(request_data: dict[str, Any], current_user: dict[str, A
         "warnings": warnings,
         "demand_context": demand_context,
         "maintenance_context": maintenance_context,
+        "weather_context": weather_context,
         "delivery_order_object_ids": order_ids,
         "used_ml_cost": used_ml,
     }
@@ -384,6 +405,24 @@ async def dispatch_route(route_id: str, dispatch_data: dict[str, Any], current_u
     if route is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Route not found")
 
+    final_vehicle_id = dispatch_data.get("vehicle_id") or (str(route["vehicle_id"]) if route.get("vehicle_id") else None)
+    if not final_vehicle_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a vehicle before dispatching this route")
+    if final_vehicle_id:
+        assignment = await validate_vehicle_assignment(final_vehicle_id, route_id, create_block_alert=True)
+        if not assignment["eligible"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Vehicle {assignment['vehicle_registration']} is blocked from dispatch: {'; '.join(assignment['blocking_reasons'])}",
+            )
+
+    final_driver_id = dispatch_data.get("driver_id") or (str(route["driver_id"]) if route.get("driver_id") else None)
+    if not final_driver_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select an enrolled driver before dispatching this route")
+    if final_driver_id:
+        from app.services.driver_device_service import validate_driver_for_assignment
+        await validate_driver_for_assignment(final_driver_id, route_id)
+
     update: dict[str, Any] = {"status": "dispatched", "dispatched_at": utc_now(), "updated_at": utc_now()}
     if dispatch_data.get("vehicle_id"):
         update["vehicle_id"] = validate_object_id(dispatch_data["vehicle_id"])
@@ -410,12 +449,24 @@ async def cancel_route(route_id: str, current_user: dict[str, Any]) -> dict[str,
         object_id = validate_object_id(route_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid route ID") from exc
+    route = await get_route_plan_collection().find_one({"_id": object_id})
+    if route is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Route not found")
+    if route.get("status") == "in_progress":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An in-progress route cannot be cancelled from route planning")
+    if route.get("status") in {"completed", "cancelled"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This route is already closed")
     result = await get_route_plan_collection().update_one(
-        {"_id": object_id},
+        {"_id": object_id, "status": {"$nin": ["in_progress", "completed", "cancelled"]}},
         {"$set": {"status": "cancelled", "updated_at": utc_now()}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Route not found")
+    if route.get("delivery_order_ids"):
+        await _db()[DELIVERY_COLLECTION].update_many(
+            {"_id": {"$in": route["delivery_order_ids"]}, "delivery_status": {"$in": ["assigned", "in_route"]}},
+            {"$set": {"delivery_status": "pending", "assigned_vehicle_id": None, "assigned_driver_id": None, "updated_at": utc_now()}},
+        )
     return await get_route_plan(route_id)
 
 

@@ -18,6 +18,8 @@ class DeliveryOrderCreate(BaseModel):
     pickup_address: str | None = None
     drop_address: str | None = None
     zone_id: str | None = None
+    zone_assignment_method: str | None = None
+    is_demo: bool = False
     parcel_weight: float | None = Field(default=None, ge=0)
     parcel_volume: float | None = Field(default=None, ge=0)
     priority: str = "medium"
@@ -57,6 +59,8 @@ class DeliveryOrderUpdate(BaseModel):
     pickup_address: str | None = None
     drop_address: str | None = None
     zone_id: str | None = None
+    zone_assignment_method: str | None = None
+    is_demo: bool | None = None
     parcel_weight: float | None = Field(default=None, ge=0)
     parcel_volume: float | None = Field(default=None, ge=0)
     priority: str | None = None
@@ -90,6 +94,10 @@ class DeliveryStatusUpdateRequest(BaseModel):
         return validate_choice(value, DELIVERY_STATUSES, "Delivery status")
 
 
+class DeliveryCancelRequest(BaseModel):
+    reason: str | None = None
+
+
 class BulkDeliveryOrderCreate(BaseModel):
     orders: list[DeliveryOrderCreate] = Field(min_length=1, max_length=100)
 
@@ -106,6 +114,12 @@ class DeliveryOrderResponse(BaseModel):
     pickup_address: str | None = None
     drop_address: str | None = None
     zone_id: str | None = None
+    operational_zone_id: str | None = None
+    source_zone_id: str | None = None
+    zone_assignment_method: str | None = None
+    zone_distance_km: float | None = None
+    within_service_area: bool = True
+    is_demo: bool = False
     parcel_weight: float | None = None
     parcel_volume: float | None = None
     priority: str

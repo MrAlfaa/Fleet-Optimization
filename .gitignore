@@ -14,6 +14,15 @@ UI_Designs/
 Data_Sets/
 Datasets/
 datasets/
+Supervisor_Deliverables/
+
+# Local QA evidence and generated workspace output
+output/
+tmp/
+audit-*.png
+phase*-*.png
+phone_*.png
+phone_*.xml
 
 # Python / FastAPI
 __pycache__/

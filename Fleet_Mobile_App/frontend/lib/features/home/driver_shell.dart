@@ -34,7 +34,9 @@ class DriverShell extends StatelessWidget {
                   style: TextStyle(fontWeight: FontWeight.w900),
                 ),
                 Text(
-                  controller.user?.name ?? 'Driver',
+                  controller.user?.username.isNotEmpty == true
+                      ? '${controller.user!.name} · @${controller.user!.username}'
+                      : controller.user?.name ?? 'Driver',
                   style: const TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
               ],
@@ -47,9 +49,9 @@ class DriverShell extends StatelessWidget {
                 icon: const Icon(Icons.report_problem_outlined),
               ),
               IconButton(
-                tooltip: 'Logout',
-                onPressed: controller.logout,
-                icon: const Icon(Icons.logout_rounded),
+                tooltip: 'Lock app',
+                onPressed: controller.lockApp,
+                icon: const Icon(Icons.lock_outline_rounded),
               ),
             ],
           ),

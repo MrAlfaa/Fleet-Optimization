@@ -16,6 +16,7 @@ class VehicleCreate(BaseModel):
     fuel_type: str = "electric"
     current_mileage: float = Field(default=0, ge=0)
     battery_capacity_kwh: float | None = Field(default=None, ge=0)
+    image_url: str | None = None
     assigned_driver_id: str | None = None
     status: str = "active"
     health_status: str = "unknown"
@@ -63,6 +64,7 @@ class VehicleUpdate(BaseModel):
     fuel_type: str | None = None
     current_mileage: float | None = Field(default=None, ge=0)
     battery_capacity_kwh: float | None = Field(default=None, ge=0)
+    image_url: str | None = None
     assigned_driver_id: str | None = None
     status: str | None = None
     health_status: str | None = None
@@ -111,6 +113,7 @@ class VehicleResponse(BaseModel):
     fuel_type: str
     current_mileage: float
     battery_capacity_kwh: float | None = None
+    image_url: str | None = None
     assigned_driver_id: str | None = None
     status: str
     health_status: str
@@ -126,3 +129,7 @@ class VehicleListResponse(BaseModel):
     limit: int
     total: int
     pages: int
+
+
+class VehicleLifecycleRequest(BaseModel):
+    reason: str | None = None

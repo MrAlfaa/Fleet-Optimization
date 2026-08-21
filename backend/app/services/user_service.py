@@ -8,6 +8,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.core.database import get_database
 from app.core.security import hash_password
+from app.core.permissions import permission_overrides_from_selection
 from app.models.user_model import USER_COLLECTION, build_user_document, safe_user_document, utc_now
 from app.utils.object_id import serialize_mongo_list, validate_object_id
 
@@ -80,9 +81,7 @@ async def list_users(
         .skip((page - 1) * limit)
         .limit(limit)
     )
-    items = serialize_mongo_list(await cursor.to_list(length=limit))
-    for item in items:
-        item.pop("password_hash", None)
+    items = [safe_user_document(item) for item in await cursor.to_list(length=limit)]
 
     return {
         "items": items,
@@ -136,3 +135,15 @@ async def deactivate_user(user_id: str) -> dict[str, Any]:
 
 async def activate_user(user_id: str) -> dict[str, Any]:
     return await update_user(user_id, {"is_active": True})
+
+
+async def update_user_permissions(user_id: str, permissions: list[str]) -> dict[str, Any]:
+    raw_user = await get_raw_user_by_id(user_id)
+    if raw_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if raw_user.get("role") == "admin":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Administrator permissions cannot be reduced")
+    return await update_user(
+        user_id,
+        {"permission_overrides": permission_overrides_from_selection(raw_user["role"], permissions)},
+    )

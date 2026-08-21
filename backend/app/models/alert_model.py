@@ -10,7 +10,7 @@ from app.utils.object_id import serialize_mongo_document
 
 ALERT_COLLECTION = "alerts"
 
-ALERT_TYPES = {"maintenance", "vehicle", "system", "route", "demand"}
+ALERT_TYPES = {"maintenance", "vehicle", "system", "route", "demand", "driver"}
 ALERT_SEVERITIES = {"info", "warning", "high", "critical"}
 ALERT_STATUSES = {"active", "resolved", "dismissed"}
 

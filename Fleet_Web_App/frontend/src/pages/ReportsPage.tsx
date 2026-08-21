@@ -1,38 +1,65 @@
-import { Download, Info } from 'lucide-react'
-import { Card, DataTable, MetricCard, PageHeader, PrimaryButton, StatusBadge } from '../components/UI'
+import { Download } from 'lucide-react'
+import { Card, DataTable, ErrorState, LoadingState, MetricCard, OperationalInfo, PageHeader, PrimaryButton, StatusBadge } from '../components/UI'
 import { BarChart3, Route, Wrench } from 'lucide-react'
-
-const runs = [
-  ['ML-2026-10-A', 'Predictive Maint.', 'Oct 24, 14:30', 'Placeholder', '-', 'Completed'],
-  ['ML-2026-10-B', 'Demand Forecaster', 'Oct 24, 10:15', 'Placeholder', '-', 'Completed'],
-  ['ML-2026-10-C', 'Route Optimizer', 'Oct 23, 22:00', '-', '-', 'Ready'],
-  ['ML-2026-09-D', 'Predictive Maint.', 'Oct 20, 08:00', 'Unavailable', '-', 'Needs Training'],
-]
+import { useAsyncData } from '../hooks/useAsyncData'
+import { modelStatusFromAvailability } from '../services/adapters'
+import { fleetService } from '../services/fleetService'
+import { forecastService } from '../services/forecastService'
+import { operationsService } from '../services/operationsService'
+import { reportService } from '../services/reportService'
+import { saveDownload } from '../utils/download'
+import { useDateRange } from '../hooks/useDateRange'
+import { useState } from 'react'
 
 export function ReportsPage() {
+  const range = useDateRange()
+  const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null)
+  const { data, error, loading, reload } = useAsyncData(async () => {
+    const [predictive, demand, route] = await Promise.all([
+      fleetService.getPredictiveModelStatus(),
+      forecastService.getModelStatus(),
+      operationsService.getRouteModelStatus(),
+    ])
+    return { predictive, demand, route }
+  }, [])
+
+  if (loading) return <LoadingState />
+  if (error || !data) return <ErrorState message={error ?? 'Unable to load model reports'} onRetry={reload} />
+
+  const runs = [
+    ['PM-BACKEND', 'Predictive Maint.', modelStatusFromAvailability(data.predictive), String(data.predictive.required_features_count ?? '-'), String(data.predictive.loaded ?? false)],
+    ['DF-BACKEND', 'Demand Forecaster', modelStatusFromAvailability(data.demand), String(data.demand.zones_count ?? '-'), String(data.demand.loaded ?? false)],
+    ['RT-BACKEND', 'Route Optimizer', modelStatusFromAvailability(data.route), String(data.route.feature_count ?? '-'), String(data.route.loaded ?? false)],
+  ]
+  const exportReport = async (format: 'pdf' | 'xlsx') => {
+    setExporting(format)
+    try {
+      const file = await reportService.export(format, range.start || undefined, range.end || undefined)
+      saveDownload(file.blob, file.filename)
+    } finally {
+      setExporting(null)
+    }
+  }
+
   return (
     <div>
       <PageHeader
-        action={<PrimaryButton><Download className="h-4 w-4" /> Export Report</PrimaryButton>}
-        description="Review system analytics and machine learning placeholder status."
+        action={<div className="flex flex-wrap items-center gap-2"><OperationalInfo title="Model quality guidance">These cards report loaded backend artifacts. Loaded status does not guarantee production accuracy; RUL and graph-enhanced demand limitations remain documented.</OperationalInfo><PrimaryButton disabled={exporting !== null} onClick={() => exportReport('pdf')}><Download className="h-4 w-4" /> {exporting === 'pdf' ? 'Generating...' : 'PDF'}</PrimaryButton><PrimaryButton disabled={exporting !== null} onClick={() => exportReport('xlsx')}><Download className="h-4 w-4" /> {exporting === 'xlsx' ? 'Generating...' : 'Excel'}</PrimaryButton></div>}
+        description="Review backend machine learning artifact status and dashboard readiness."
         title="Reports and Model Status"
       />
-      <div className="mb-5 flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-800">
-        <Info className="mt-0.5 h-5 w-5" />
-        <div><div className="font-black">Model Status Notice</div><div className="text-sm font-semibold">ML models are placeholders until trained with sufficient historical fleet data. Current metrics are UI placeholders only.</div></div>
-      </div>
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard icon={Wrench} label="Maintenance Readiness" tone="green" trend="Placeholder" value="94.2%" />
-        <MetricCard icon={Route} label="Route Efficiency" tone="blue" trend="OR-Tools later" value="88.7%" />
-        <MetricCard icon={BarChart3} label="Demand Accuracy" tone="green" trend="Placeholder" value="91.5%" />
+        <MetricCard icon={Wrench} label="Maintenance Model" tone="green" trend={modelStatusFromAvailability(data.predictive)} value={String(data.predictive.required_features_count ?? 0)} />
+        <MetricCard icon={Route} label="Route Model" tone="blue" trend={modelStatusFromAvailability(data.route)} value={String(data.route.feature_count ?? 0)} />
+        <MetricCard icon={BarChart3} label="Demand Zones" tone="green" trend={modelStatusFromAvailability(data.demand)} value={String(data.demand.zones_count ?? 0)} />
       </div>
       <div className="mt-5">
         <Card title="Model Run History">
-          <DataTable headers={['Run ID', 'Model Type', 'Timestamp', 'Metric State', 'RMSE', 'Status']}>
+          <DataTable headers={['Run ID', 'Model Type', 'Status', 'Feature / Zone Count', 'Loaded']}>
             {runs.map((run) => (
               <tr key={run[0]}>
-                {run.slice(0, 5).map((cell) => <td className="px-5 py-4 font-semibold" key={cell}>{cell}</td>)}
-                <td className="px-5 py-4"><StatusBadge tone={run[5] === 'Completed' ? 'green' : run[5] === 'Ready' ? 'blue' : 'amber'}>{run[5]}</StatusBadge></td>
+                {run.slice(0, 4).map((cell) => <td className="px-5 py-4 font-semibold" key={cell}>{cell}</td>)}
+                <td className="px-5 py-4"><StatusBadge tone={run[4] === 'true' ? 'green' : 'amber'}>{run[4]}</StatusBadge></td>
               </tr>
             ))}
           </DataTable>

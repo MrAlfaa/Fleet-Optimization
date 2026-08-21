@@ -59,7 +59,7 @@ class VehicleScreen extends StatelessWidget {
                   const SizedBox(width: 10),
                   MetricTile(
                     label: 'Model',
-                    value: 'ML off',
+                    value: vehicle.riskLevel,
                     icon: Icons.memory_rounded,
                     color: AppColors.primary,
                   ),

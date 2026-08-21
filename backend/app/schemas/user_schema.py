@@ -80,3 +80,7 @@ class UserListResponse(BaseModel):
     limit: int
     total: int
     pages: int
+
+
+class UserPermissionUpdate(BaseModel):
+    permissions: list[str] = Field(default_factory=list)

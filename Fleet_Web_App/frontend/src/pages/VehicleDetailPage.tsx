@@ -1,78 +1,77 @@
-import { CheckCircle2, Wrench } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { maintenanceRecords, vehicleParts, vehicles } from '../data/mockData'
-import { Card, PageHeader, PrimaryButton, RiskBadge, StatusBadge } from '../components/UI'
+import { Link, useParams } from 'react-router-dom'
+import { EmptyState, ErrorState, LoadingState, PrimaryButton, RiskBadge, StatusBadge } from '../components/UI'
+import { VehicleIdentity } from '../components/VehicleIdentity'
+import { VehicleSubsystemList } from '../components/VehicleSubsystemList'
+import { VehicleComponentDialog } from '../components/VehicleComponentDialog'
+import { MaintenanceRecordDialog } from '../components/MaintenanceRecordDialog'
+import { useAsyncData } from '../hooks/useAsyncData'
+import { fleetService } from '../services/fleetService'
+import type { VehiclePart } from '../types'
+
 
 export function VehicleDetailPage() {
-  const { vehicleId = 'cab-1024' } = useParams()
-  const [showModal, setShowModal] = useState(false)
-  const vehicle = vehicles.find((item) => item.id === vehicleId) ?? vehicles[0]
+  const { vehicleId = '' } = useParams()
+  const [selectedPart, setSelectedPart] = useState<VehiclePart | null>(null)
+  const [showComponent, setShowComponent] = useState(false)
+  const [maintenancePart, setMaintenancePart] = useState<VehiclePart | null>(null)
+  const { data, error, loading, reload } = useAsyncData(async () => {
+    const [vehicle, parts, maintenanceRecords] = await Promise.all([
+      fleetService.getVehicle(vehicleId),
+      fleetService.listVehicleParts(vehicleId, true),
+      fleetService.listMaintenanceRecords({ vehicle_id: vehicleId }),
+    ])
+    return { vehicle, parts, maintenanceRecords }
+  }, [vehicleId])
 
-  return (
-    <div>
-      <PageHeader
-        action={<PrimaryButton onClick={() => setShowModal(true)}><CheckCircle2 className="h-4 w-4" /> Mark as Maintained</PrimaryButton>}
-        description={`${vehicle.model} • ${vehicle.type} • ${vehicle.mileage.toLocaleString()} km`}
-        eyebrow={<RiskBadge risk={vehicle.risk} />}
-        title={vehicle.number}
-      />
-      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {vehicleParts.map((part) => (
-            <button
-              className="rounded-2xl border border-fleet-line bg-white p-5 text-left shadow-card transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-soft"
-              key={part.id}
-              type="button"
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-lg font-black"><Wrench className="h-5 w-5 text-fleet-muted" /> {part.name}</div>
-                <RiskBadge risk={part.risk} />
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><div className="font-bold text-fleet-muted">Last Service</div><div className="font-extrabold">{part.lastService}</div></div>
-                <div><div className="font-bold text-fleet-muted">Failures</div><div className="font-extrabold">{part.failures}</div></div>
-              </div>
-              <div className="mt-4 rounded-xl bg-slate-50 p-3">
-                <div className="text-xs font-black uppercase text-fleet-muted">Predicted next</div>
-                <div className="mt-1 font-black text-fleet-blue">{part.predictedNext}</div>
-              </div>
-              <p className="mt-3 text-sm font-medium text-fleet-muted">{part.note}</p>
-            </button>
-          ))}
-        </div>
-        <Card title="Maintenance Log">
-          <div className="space-y-4">
-            {maintenanceRecords.slice(0, 4).map((record) => (
-              <div className="relative border-l-2 border-slate-200 pl-4" key={record.id}>
-                <span className="absolute -left-[7px] top-1 h-3 w-3 rounded-full bg-fleet-blue ring-4 ring-white" />
-                <div className="text-xs font-bold text-fleet-muted">{record.date}</div>
-                <div className="mt-1 font-black">{record.service}</div>
-                <div className="text-sm font-medium text-fleet-muted">{record.vehicle} • {record.technician}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
+  if (loading) return <LoadingState />
+  if (error || !data) return <ErrorState message={error ?? 'Unable to load vehicle detail'} onRetry={reload} />
+
+  const { vehicle, parts, maintenanceRecords } = data
+  const activeParts = parts.filter((item) => item.isActive !== false)
+  const openRecords = maintenanceRecords.filter((record) => record.status !== 'Completed')
+  const nextService = activeParts.map((part) => part.predictedNext).find((value) => value !== 'No prediction') ?? 'Not scheduled'
+
+  return <div className="space-y-5">
+    <section className="flex flex-col gap-5 rounded-lg border border-slate-200 bg-white p-5 shadow-card lg:flex-row lg:items-center lg:justify-between">
+      <VehicleIdentity size="lg" vehicle={vehicle} />
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge tone={vehicle.status === 'Active' ? 'green' : vehicle.status === 'Maintenance' ? 'amber' : 'blue'}>{vehicle.status}</StatusBadge>
+        <RiskBadge risk={vehicle.risk} />
+        <Link className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" to={`/maintenance/vehicle/${vehicle.id}`}>Maintenance workspace</Link>
+        <PrimaryButton onClick={() => setShowComponent(true)}><Plus className="h-4 w-4" />Add part</PrimaryButton>
       </div>
+    </section>
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between">
-              <div>
-                <h3 className="text-2xl font-black">Complete maintenance</h3>
-                <p className="mt-1 text-sm font-semibold text-fleet-muted">This updates the local frontend state demo workflow.</p>
-              </div>
-              <StatusBadge tone="blue">Placeholder baseline</StatusBadge>
-            </div>
-            <textarea className="min-h-28 w-full rounded-2xl border border-fleet-line p-3 text-sm font-semibold outline-none focus:ring-4 focus:ring-blue-100" placeholder="Service notes..." />
-            <div className="mt-5 flex justify-end gap-3">
-              <button className="rounded-xl px-4 py-2 text-sm font-bold text-fleet-muted hover:bg-slate-50" onClick={() => setShowModal(false)} type="button">Cancel</button>
-              <PrimaryButton onClick={() => setShowModal(false)}>Save completion</PrimaryButton>
-            </div>
-          </div>
+    <section className="grid overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-2 xl:grid-cols-4">
+      <Summary label="Overall health" value={vehicle.risk === 'low' ? 'Healthy' : vehicle.risk === 'critical' ? 'Critical' : 'Monitor'} />
+      <Summary label="Predictive risk" value={vehicle.risk} />
+      <Summary label="Open maintenance" value={String(openRecords.length)} />
+      <Summary label="Next service" value={nextService} />
+    </section>
+
+    <div className="space-y-5">
+      <section className="min-w-0">
+        <div className="mb-3 flex items-end justify-between gap-4"><div><h1 className="text-xl font-extrabold text-slate-950">EV part health</h1><p className="mt-1 text-sm text-slate-500">Review part condition, service history, and predicted attention windows.</p></div><span className="shrink-0 text-sm font-bold text-slate-500">{activeParts.length} monitored</span></div>
+        {activeParts.length ? <VehicleSubsystemList onSelectPart={setSelectedPart} parts={activeParts} /> : <EmptyState description="Add or restore an EV part to monitor its condition." title="No active parts" />}
+      </section>
+
+      <aside className="min-w-0 rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-extrabold text-slate-950">Maintenance timeline</h2></div>
+        <div className="space-y-5 p-5">
+          {maintenanceRecords.length === 0 && <div className="text-sm font-semibold text-slate-500">No maintenance records for this vehicle.</div>}
+          {maintenanceRecords.slice(0, 8).map((record) => <div className="relative border-l-2 border-slate-200 pl-4" key={record.id}><span className="absolute -left-[7px] top-1 h-3 w-3 rounded-full bg-blue-600 ring-4 ring-white" /><div className="text-xs font-bold text-slate-500">{record.date}</div><div className="mt-1 font-extrabold text-slate-950">{record.service}</div><div className="text-sm font-medium text-slate-500">{record.technician}</div></div>)}
         </div>
-      )}
+      </aside>
     </div>
-  )
+
+    {(showComponent || selectedPart) && <VehicleComponentDialog onClose={() => { setShowComponent(false); setSelectedPart(null) }} onCreateMaintenance={(part) => { setSelectedPart(null); setMaintenancePart(part) }} onSaved={reload} part={selectedPart} parts={parts} vehicleId={vehicle.id} />}
+    {maintenancePart && <MaintenanceRecordDialog onClose={() => setMaintenancePart(null)} onSaved={reload} part={maintenancePart} vehicle={vehicle} />}
+  </div>
+}
+
+
+function Summary({ label, value }: { label: string; value: string }) {
+  return <div className="border-b border-slate-200 p-5 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><div className="text-xs font-bold uppercase text-slate-500">{label}</div><div className="mt-2 truncate text-xl font-extrabold capitalize text-slate-950">{value}</div></div>
 }

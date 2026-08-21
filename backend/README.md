@@ -774,3 +774,69 @@ Known limitation: Phase 06 intentionally supports stable single-vehicle route op
 2. Phase 08: connect Flutter driver mock services to backend APIs.
 3. Phase 09: implement real-time trip tracking and operational notifications.
 4. Phase 10: harden deployment, monitoring, and production configuration.
+
+## Phase 12: Secure Driver Enrollment and Delivery Execution
+
+Phase 12 replaces driver email/password login with administrator-controlled device enrollment.
+
+- Admin provisioning: `GET/POST /api/users/drivers/...`
+- Device enrollment/session: `POST /api/driver-device/enroll` and `/session`
+- Driver device reset immediately revokes the old phone through credential-version validation.
+- Driver tokens expire after 15 minutes and are valid only for the enrolled active device.
+- PIN hashes and biometric material remain on the Android device; the backend stores only device-secret hashes and a biometric-enabled indicator.
+- Incomplete parcels use `POST /api/driver/deliveries/{order_id}/incomplete`, retain attempt history, and reschedule to the next Asia/Colombo calendar day.
+- Vehicle issues use `POST /api/driver/issues` and create structured driver issue records plus linked alerts.
+
+The administrator must create the driver account in the web **Driver Management** page and provide the temporary password once. A lost phone or forgotten PIN requires an admin device reset and a new temporary password.
+# Phase 12.1 Operational Context and Reporting
+
+Phase 12.1 adds operational UI support APIs without changing or retraining the ML artifacts:
+
+- `GET /api/search?q=...` searches permitted vehicles, drivers, deliveries, routes, and Sri Lankan operational zones.
+- `GET /api/operations/context?date=YYYY-MM-DD` returns Sri Lankan holiday and current Colombo weather context.
+- `GET /api/weather/context?latitude=...&longitude=...` returns normalized route-model weather context using Open-Meteo.
+- `GET /api/weather/route-context?route_id=...` returns weather context for a saved route.
+- `GET /api/reports/export?format=pdf|xlsx&start_date=...&end_date=...` produces an authenticated operational report.
+- `GET /api/demand/export?zone_id=...&start_date=...&end_date=...` downloads filtered demand forecasts as CSV.
+
+Weather lookup uses short timeouts, caching, and a fail-open fallback so route optimization remains available when Open-Meteo cannot be reached. Spreadsheet exports sanitize values that could be interpreted as formulas and use allow-listed fields; credentials, access tokens, device secrets, PIN data, and database settings are never exported.
+
+The demand artifact does not support holiday, rain, promotion, or manual percentage inputs. Holiday and weather values are therefore operational context only. Route optimization remains single-vehicle, weather-aware cost does not represent real-time traffic, and the documented RUL and graph-enhanced demand model limitations still apply.
+
+## Phase 12.2 Sri Lankan Live Demand and Delivery Maps
+
+Phase 12.2 keeps the Olist Prophet artifacts unchanged while connecting Sri Lankan operational deliveries through the documented alias layer.
+
+- `GET /api/demand/operational-zones` returns the ten supported Sri Lankan zones and service radiuses.
+- `GET /api/demand/actuals` returns daily non-demo delivery demand grouped by Sri Lankan operational zone.
+- `GET /api/demand/forecast-vs-actual` compares raw mapped Olist forecasts with live local orders.
+- `POST /api/demand/actuals/rebuild` idempotently rebuilds daily demand aggregates and is admin-only.
+- Delivery creation validates the drop point, stores operational/source zone IDs, and records nearest/confirmed/manual-override assignment metadata.
+
+The web delivery form uses OpenStreetMap and Leaflet for pickup/drop selection; Google Maps credentials are not required. Calibration activates only after 30 complete historical calendar days with matching forecast records and is clamped between `0.50` and `2.00`. This is operational calibration, not Sri Lankan model retraining.
+
+## Phase 12.3 Driver Vehicle Inspections and Predictive Feedback
+
+Driver trip execution now requires controlled vehicle inspections from the assigned mobile user:
+
+- `POST /api/driver/trips/pre-inspection` records starting odometer, battery SoC, and dropdown-based vehicle observations.
+- `GET /api/driver/trips/inspection-status` returns the current route inspection state.
+- `POST /api/driver/trips/post-inspection` records ending mileage, ending SoC, and post-trip condition changes.
+- `POST /api/driver/trips/start` requires a safe pre-trip inspection.
+- `POST /api/driver/trips/end` requires a post-trip inspection.
+
+Critical observations place the vehicle under maintenance, create a maintenance alert, and block trip start and future route dispatch. Driver-observed categorical values are used for deterministic safety rules. Only measured odometer and SoC values are sent to the predictive artifact; unmeasured sensor values are never invented.
+
+The route dispatch contract assigns one enrolled driver, one eligible vehicle, and the route delivery order IDs. The mobile app receives only that driver's registration number, optimized stops, parcel details, and actionable warnings. Foreground GPS continues to feed the web Live Trips map while the trip is active.
+
+## Admin-Only System Test Data
+
+Use the system test seed when the database already contains an administrator and you want enough operational data to exercise the web and ML workflows without creating drivers or additional users:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed_system_test_data.py
+```
+
+The seed is idempotent and creates eight unassigned EVs with default parts, maintenance history, real predictive-artifact results, twenty unassigned Sri Lankan delivery orders, demand forecasts/recommendations, operational demand actuals, and alerts. It never writes to the `users` collection, never creates a driver, and never creates or dispatches a route. Create and enroll the test driver through Driver Management before testing assignment, dispatch, mobile delivery execution, or live GPS.
+
+Run the backend with the same Python environment used for seeding. The predictive artifact requires the pinned `scikit-learn==1.6.1`; Python 3.10-3.12 is recommended rather than Python 3.14.

@@ -4,11 +4,9 @@ import 'package:fleetopt_driver/services/mock_auth_service.dart';
 import 'package:fleetopt_driver/services/mock_driver_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   Future<AppController> buildController() async {
-    SharedPreferences.setMockInitialValues({});
     final controller = AppController(
       authService: MockAuthService(),
       driverService: MockDriverService(),
@@ -17,18 +15,29 @@ void main() {
     return controller;
   }
 
-  testWidgets('driver can login and see assigned route dashboard', (
+  Future<void> enrollAndSetup(WidgetTester tester) async {
+    await tester.enterText(find.byType(EditableText).at(0), 'driver.demo');
+    await tester.enterText(find.byType(EditableText).at(1), 'Temporary@123');
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -280));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Register device'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText).at(0), '123456');
+    await tester.enterText(find.byType(EditableText).at(1), '123456');
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -200));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Complete secure registration'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('driver can enroll and see assigned route dashboard', (
     tester,
   ) async {
     final controller = await buildController();
     await tester.pumpWidget(FleetOptDriverApp(controller: controller));
 
-    expect(find.text('Driver sign in'), findsOneWidget);
-
-    await tester.drag(find.byType(Scrollable).first, const Offset(0, -280));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign in'));
-    await tester.pumpAndSettle();
+    expect(find.text('Register this driver device'), findsOneWidget);
+    await enrollAndSetup(tester);
 
     expect(find.text('FleetOpt Driver'), findsOneWidget);
     expect(find.text('Route 7A - Colombo East'), findsOneWidget);
@@ -39,10 +48,7 @@ void main() {
   ) async {
     final controller = await buildController();
     await tester.pumpWidget(FleetOptDriverApp(controller: controller));
-    await tester.drag(find.byType(Scrollable).first, const Offset(0, -280));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign in'));
-    await tester.pumpAndSettle();
+    await enrollAndSetup(tester);
 
     await tester.tap(find.text('Route'));
     await tester.pumpAndSettle();

@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
@@ -19,10 +21,41 @@ from app.services.demand_forecasting_service import (
     list_zones,
     refresh_forecast_from_model,
 )
+from app.services.operational_demand_service import forecast_vs_actual, list_actuals, operational_zones, rebuild_operational_demand
 from app.utils.response import error_response, success_response
 
 
 router = APIRouter(prefix="/demand", tags=["Demand Forecasting"])
+
+
+@router.get("/operational-zones")
+async def get_operational_zones(_: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES))) -> dict:
+    return success_response("Sri Lankan operational zones retrieved successfully", data={"items": operational_zones()})
+
+
+@router.get("/actuals")
+async def get_operational_actuals(
+    zone_id: str | None = Query(default=None),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    _: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES)),
+) -> dict:
+    return success_response("Operational demand actuals retrieved successfully", data={"items": await list_actuals(zone_id, start_date, end_date)})
+
+
+@router.get("/forecast-vs-actual")
+async def get_forecast_comparison(
+    zone_id: str | None = Query(default=None),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    _: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES)),
+) -> dict:
+    return success_response("Mapped forecast comparison retrieved successfully", data=await forecast_vs_actual(zone_id, start_date, end_date))
+
+
+@router.post("/actuals/rebuild")
+async def rebuild_actuals(_: dict = Depends(require_roles(["admin"]))) -> dict:
+    return success_response("Operational demand actuals rebuilt successfully", data=await rebuild_operational_demand())
 
 
 @router.get("/model/status")
@@ -132,8 +165,13 @@ async def adjacency_graph(current_user: dict = Depends(require_roles(DEMAND_ALLO
 
 
 @router.get("/export")
-async def export(current_user: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES))):
-    csv_text = await export_forecasts_as_csv()
+async def export(
+    zone_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    current_user: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES)),
+):
+    csv_text = await export_forecasts_as_csv(zone_id=zone_id, start_date=start_date, end_date=end_date)
     return StreamingResponse(
         iter([csv_text]),
         media_type="text/csv",

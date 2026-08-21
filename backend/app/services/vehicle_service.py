@@ -118,8 +118,46 @@ async def update_vehicle(vehicle_id: str, data: dict[str, Any]) -> dict[str, Any
     return safe_vehicle_document(await get_vehicle_collection().find_one({"_id": object_id}))
 
 
+async def retire_vehicle(vehicle_id: str, current_user: dict[str, Any] | None = None, reason: str | None = None) -> dict[str, Any]:
+    object_id = validate_object_id(vehicle_id)
+    active_route = await _database()["route_plans"].find_one({
+        "vehicle_id": object_id,
+        "status": {"$in": ["dispatched", "in_progress"]},
+    })
+    if active_route:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cancel or complete the active route before retiring this vehicle")
+    now = utc_now()
+    update = {
+        "status": "retired", "assigned_driver_id": None, "retired_at": now,
+        "retired_by": validate_object_id(current_user["id"]) if current_user else None,
+        "retirement_reason": reason, "updated_at": now,
+    }
+    result = await get_vehicle_collection().update_one({"_id": object_id}, {"$set": update})
+    if not result.matched_count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    return safe_vehicle_document(await get_vehicle_collection().find_one({"_id": object_id}))
+
+
+async def restore_vehicle(vehicle_id: str) -> dict[str, Any]:
+    object_id = validate_object_id(vehicle_id)
+    result = await get_vehicle_collection().update_one(
+        {"_id": object_id, "status": "retired"},
+        {"$set": {"status": "inactive", "retired_at": None, "retired_by": None, "retirement_reason": None, "updated_at": utc_now()}},
+    )
+    if not result.matched_count:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only retired vehicles can be restored")
+    return safe_vehicle_document(await get_vehicle_collection().find_one({"_id": object_id}))
+
+
 async def delete_vehicle(vehicle_id: str) -> dict[str, Any]:
-    return await update_vehicle(vehicle_id, {"status": "retired"})
+    return await retire_vehicle(vehicle_id)
+
+
+def _database():
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="MongoDB is not configured or connected")
+    return db
 
 
 async def assign_driver(vehicle_id: str, driver_id: str) -> dict[str, Any]:
