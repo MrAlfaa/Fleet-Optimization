@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.database import close_mongo_connection, connect_to_mongo
+from app.core.deployment_controls import validate_mongodb_target
+from app.middleware.license_middleware import LicenseEnforcementMiddleware
 from app.models.alert_model import ensure_alert_indexes
 from app.models.demand_model import ensure_demand_indexes
 from app.models.delivery_model import ensure_delivery_indexes
@@ -51,6 +53,13 @@ from app.services.predictive_artifact_registry import predictive_artifact_regist
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    validate_mongodb_target(
+        uri=settings.mongodb_uri,
+        database_name=settings.mongodb_db_name,
+        validation_enabled=settings.mongodb_target_validation_enabled,
+        allowed_hosts=settings.allowed_mongodb_hosts,
+        allowed_databases=settings.allowed_mongodb_databases,
+    )
     await connect_to_mongo()
     await ensure_user_indexes()
     await ensure_vehicle_indexes()
@@ -78,6 +87,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(LicenseEnforcementMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

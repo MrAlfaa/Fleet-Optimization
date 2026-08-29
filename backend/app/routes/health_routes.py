@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.core.config import settings
 from app.core.database import ping_database
+from app.core.deployment_controls import evaluate_license
 from app.utils.response import success_response
 
 
@@ -42,4 +43,18 @@ async def database_health_check() -> dict:
     return success_response(
         message=message,
         data=db_status,
+    )
+
+
+@api_router.get("/license")
+async def license_health_check() -> dict:
+    license_status = evaluate_license(
+        enabled=settings.license_enforcement_enabled,
+        customer_name=settings.license_customer_name,
+        expires_at=settings.license_expires_at,
+        support_message=settings.license_support_message,
+    )
+    return success_response(
+        message="Deployment access status retrieved",
+        data=license_status.to_dict(),
     )

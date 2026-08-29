@@ -1,0 +1,2 @@
+# ML artifact manifests verify exact bytes; Windows line-ending conversion must not alter them.
+backend/app/ml_artifacts/** -text
