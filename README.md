@@ -82,11 +82,6 @@ JWT_SECRET_KEY=<long-random-secret>
 MONGODB_TARGET_VALIDATION_ENABLED=true
 ALLOWED_MONGODB_HOSTS=<approved-host-without-credentials>
 ALLOWED_MONGODB_DATABASES=fleet_optimization
-
-LICENSE_ENFORCEMENT_ENABLED=true
-LICENSE_CUSTOMER_NAME=FleetOpt Research Client
-LICENSE_EXPIRES_AT=2026-09-05T00:00:00+05:30
-LICENSE_SUPPORT_MESSAGE=The configured research access period has ended. Contact the project developer.
 ```
 
 Important:
@@ -122,7 +117,6 @@ Verify the backend from another terminal:
 ```bash
 curl http://127.0.0.1:8000/api/health
 curl http://127.0.0.1:8000/api/health/db
-curl http://127.0.0.1:8000/api/health/license
 ```
 
 The API documentation is available at:
@@ -290,16 +284,6 @@ Then stop and run the Flutter command again with:
 ### Load candidate remains at `awaiting worker`
 
 Confirm that Terminal 3 is still running and connected to the same MongoDB database as the backend.
-
-### Research access period ended
-
-Check the transparent deployment status:
-
-```bash
-curl http://127.0.0.1:8000/api/health/license
-```
-
-The web app displays the configured customer, expiry time, and support message. Contact the project developer to update the authorized research deployment configuration.
 
 ## 11. Security Notes
 
