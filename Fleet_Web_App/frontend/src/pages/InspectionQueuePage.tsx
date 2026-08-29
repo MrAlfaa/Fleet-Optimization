@@ -11,7 +11,7 @@ import type { InspectionPriority, InspectionStatus, VehicleMaintenanceInspection
 import { showToast } from '../utils/toast'
 import { canAccess } from '../utils/permissions'
 
-const statuses: Array<'all' | InspectionStatus> = ['all', 'pending', 'assigned', 'in_progress', 'decision_pending', 'maintenance_required', 'returned_to_service', 'cancelled']
+const statuses: Array<'all' | InspectionStatus> = ['all', 'pending', 'assigned', 'in_progress', 'decision_pending', 'maintenance_required', 'maintenance_completed', 'returned_to_service', 'cancelled']
 const priorities: Array<'all' | InspectionPriority> = ['all', 'critical', 'high', 'medium', 'low']
 const cancellableStatuses: InspectionStatus[] = ['pending', 'assigned', 'in_progress']
 
@@ -70,7 +70,8 @@ function QueueActions({ inspection, canManage, onAssign, onCancel }: { inspectio
     {inspection.status === 'pending' && (canManage ? <button className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-blue-200 px-3 text-sm font-bold text-blue-700 transition hover:bg-blue-50" onClick={() => onAssign(inspection)} title="Assign inspection" type="button"><UserRoundCheck className="h-4 w-4" />Assign</button> : <span className="text-xs font-semibold text-slate-500">Awaiting assignment</span>)}
     {(inspection.status === 'assigned' || inspection.status === 'in_progress') && <Link className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-blue-200 px-3 text-sm font-bold text-blue-700 transition hover:bg-blue-50" to={`/maintenance/inspections/${inspection.id}`}><ArrowRight className="h-4 w-4" />Open Inspection</Link>}
     {inspection.status === 'decision_pending' && <Link className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-amber-200 px-3 text-sm font-bold text-amber-800 transition hover:bg-amber-50" to={`/maintenance/inspections/${inspection.id}/decision`}><ArrowRight className="h-4 w-4" />Review Outcome</Link>}
-    {inspection.status === 'maintenance_required' && <Link className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-bold text-red-700 transition hover:bg-red-50" to={inspection.workOrderId ? `/maintenance/work-orders?workOrderId=${inspection.workOrderId}` : `/vehicles/${inspection.vehicleId}?tab=maintenance`}><Wrench className="h-4 w-4" />{inspection.workOrderId ? 'Linked Work' : 'Maintenance'}</Link>}
+    {inspection.status === 'maintenance_required' && <Link className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-bold text-red-700 transition hover:bg-red-50" to={inspection.workOrderId ? `/maintenance/work-orders?workOrderId=${inspection.workOrderId}` : `/vehicles/${inspection.vehicleId}?tab=maintenance`}><Wrench className="h-4 w-4" />{inspection.workOrderId ? 'Open Related Work Order' : 'Open Vehicle Maintenance'}</Link>}
+    {inspection.status === 'maintenance_completed' && inspection.workOrderId && <Link className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-200 px-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50" to={`/maintenance/work-orders?workOrderId=${inspection.workOrderId}`}><Wrench className="h-4 w-4" />View Work Order</Link>}
     {canManage && cancellableStatuses.includes(inspection.status) && <button aria-label="Cancel inspection" className="grid h-9 w-9 place-items-center rounded-lg border border-red-200 text-red-700 transition hover:bg-red-50" onClick={() => onCancel(inspection)} title="Cancel inspection" type="button"><XCircle className="h-4 w-4" /></button>}
   </div>
 }
@@ -82,5 +83,5 @@ function InspectionCancellationDialog({ inspection, onClose, onCancelled }: { in
 }
 
 function PriorityBadge({ value }: { value: InspectionPriority }) { return <StatusBadge tone={value === 'critical' ? 'red' : value === 'high' ? 'amber' : value === 'low' ? 'green' : 'blue'}>{value}</StatusBadge> }
-function InspectionStatusBadge({ value }: { value: InspectionStatus }) { return <StatusBadge tone={value === 'cancelled' ? 'slate' : value === 'returned_to_service' ? 'green' : value === 'maintenance_required' ? 'red' : value === 'in_progress' ? 'blue' : 'amber'}>{value.replaceAll('_', ' ')}</StatusBadge> }
+function InspectionStatusBadge({ value }: { value: InspectionStatus }) { return <StatusBadge tone={value === 'cancelled' ? 'slate' : value === 'returned_to_service' || value === 'maintenance_completed' ? 'green' : value === 'maintenance_required' ? 'red' : value === 'in_progress' ? 'blue' : 'amber'}>{value.replaceAll('_', ' ')}</StatusBadge> }
 function formatDateTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString() }

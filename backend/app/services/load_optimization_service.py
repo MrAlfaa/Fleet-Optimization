@@ -296,6 +296,96 @@ def validate_route_handoff(
     return load
 
 
+def selected_parcel_load_map(selected_option: dict[str, Any]) -> dict[str, str]:
+    assignments: dict[str, str] = {}
+    exception_ids = {
+        str(item.get("parcel_id"))
+        for item in selected_option.get("exceptions") or []
+        if item.get("parcel_id")
+    }
+    for load in selected_option.get("loads") or []:
+        load_id = str(load.get("load_id") or "").strip()
+        if not load_id:
+            raise ValueError("Every selected load requires a load ID")
+        for value in load.get("parcel_ids") or []:
+            parcel_id = str(value)
+            if parcel_id in exception_ids:
+                raise ValueError("An exception parcel cannot be assigned to a selected load")
+            if parcel_id in assignments:
+                raise ValueError("A parcel cannot be assigned to more than one selected load")
+            assignments[parcel_id] = load_id
+    return assignments
+
+
+async def synchronize_approved_plan_deliveries(plan: dict[str, Any]) -> None:
+    if plan.get("status") != "approved":
+        raise ValueError("Only an approved load plan can synchronize parcel assignments")
+    database = _database()
+    selected = plan.get("selected_option") or {}
+    assignments = selected_parcel_load_map(selected)
+    plan_id = str(plan["plan_id"])
+    now = utc_now()
+    loads_by_id = {
+        str(load.get("load_id")): load
+        for load in selected.get("loads") or []
+        if load.get("load_id")
+    }
+
+    for load_id, load in loads_by_id.items():
+        parcel_ids = [
+            validate_object_id(parcel_id)
+            for parcel_id, assigned_load_id in assignments.items()
+            if assigned_load_id == load_id
+        ]
+        if not parcel_ids:
+            continue
+        vehicle_id = load.get("assigned_vehicle_id")
+        await database[DELIVERY_COLLECTION].update_many(
+            {
+                "_id": {"$in": parcel_ids},
+                "delivery_status": "pending",
+                "load_planning_status": {"$in": ["consolidated", "failed", "planned", "vehicle_assigned"]},
+            },
+            {
+                "$set": {
+                    "load_planning_status": "vehicle_assigned" if vehicle_id else "planned",
+                    "active_load_plan_id": plan_id,
+                    "active_load_id": load_id,
+                    "load_reservation_job_id": None,
+                    "assigned_vehicle_id": validate_object_id(str(vehicle_id)) if vehicle_id else None,
+                    "assigned_driver_id": None,
+                    "updated_at": now,
+                },
+                "$unset": {"load_planning_exception": ""},
+            },
+        )
+
+    selected_ids = set(assignments)
+    excluded_ids = [
+        validate_object_id(str(value))
+        for value in plan.get("order_ids") or []
+        if str(value) not in selected_ids
+    ]
+    if excluded_ids:
+        await database[DELIVERY_COLLECTION].update_many(
+            {
+                "_id": {"$in": excluded_ids},
+                "delivery_status": "pending",
+                "load_planning_status": {"$in": ["consolidated", "failed", "planned", "vehicle_assigned"]},
+            },
+            {"$set": {
+                "load_planning_status": "failed",
+                "active_load_plan_id": plan_id,
+                "active_load_id": None,
+                "load_reservation_job_id": None,
+                "assigned_vehicle_id": None,
+                "assigned_driver_id": None,
+                "load_planning_exception": "Excluded from the approved load candidate",
+                "updated_at": now,
+            }},
+        )
+
+
 PLANNING_INPUT_FIELDS = frozenset({
     "parcel_weight", "parcel_volume", "load_profile", "drop_latitude", "drop_longitude",
     "zone_id", "priority", "delivery_date", "delivery_period", "scheduled_date",
@@ -793,6 +883,11 @@ async def approve_load_plan(plan_id: str, option_id: str | None, current_user: d
             {"consolidation_id": plan["consolidation_id"]},
             {"$set": {"status": "approved", "active_plan_id": plan_id, "updated_at": now}},
         )
+    await synchronize_approved_plan_deliveries({
+        **plan,
+        "status": "approved",
+        "selected_option": selected,
+    })
     return await get_load_plan(plan_id) or {}
 
 
@@ -894,14 +989,10 @@ async def assign_physical_vehicle(plan_id: str, load_id: str, vehicle_id: str, c
     )
     if result.modified_count != 1:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vehicle assignment changed concurrently")
-    await database[DELIVERY_COLLECTION].update_many(
-        {"active_load_plan_id": plan_id, "active_load_id": load_id, "load_planning_status": "planned"},
-        {"$set": {
-            "load_planning_status": "vehicle_assigned",
-            "assigned_vehicle_id": vehicle_object_id,
-            "updated_at": now,
-        }},
-    )
+    updated_plan = await database[LOAD_OPTIMIZATION_PLANS_COLLECTION].find_one({"plan_id": plan_id})
+    if updated_plan is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Load plan not found")
+    await synchronize_approved_plan_deliveries(updated_plan)
     return await get_load_plan(plan_id) or {}
 
 

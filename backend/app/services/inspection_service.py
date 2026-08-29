@@ -66,6 +66,12 @@ def _elapsed_seconds(document: dict[str, Any]) -> int | None:
 def _public(document: dict[str, Any] | None) -> dict[str, Any] | None:
     serialized = safe_inspection_document(document)
     if serialized is not None:
+        if (
+            serialized.get("status") == "maintenance_required"
+            and serialized.get("is_active") is False
+            and serialized.get("maintenance_completed_at")
+        ):
+            serialized["status"] = "maintenance_completed"
         serialized.setdefault("draft_checklist", [])
         serialized.setdefault("draft_summary", None)
         serialized.setdefault("draft_saved_by", None)

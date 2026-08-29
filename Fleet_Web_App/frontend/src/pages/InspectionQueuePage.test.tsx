@@ -16,12 +16,14 @@ const inspections = [
   { id: 'inspection-1', vehicleId: 'vehicle-1', status: 'pending', priority: 'high', inspectionAreas: ['Braking'], assignedTo: null, createdAt: '2026-08-27T08:00:00Z', isActive: true },
   { id: 'inspection-2', vehicleId: 'vehicle-2', status: 'assigned', priority: 'medium', inspectionAreas: ['Tires'], assignedTo: 'user-1', createdAt: '2026-08-27T09:00:00Z', isActive: true },
   { id: 'inspection-3', vehicleId: 'vehicle-1', status: 'decision_pending', priority: 'high', inspectionAreas: ['Braking'], assignedTo: 'user-1', createdAt: '2026-08-27T10:00:00Z', isActive: true },
+  { id: 'inspection-4', vehicleId: 'vehicle-1', status: 'maintenance_required', priority: 'high', inspectionAreas: ['Braking'], assignedTo: 'user-1', createdAt: '2026-08-27T11:00:00Z', isActive: true, workOrderId: 'work-order-1' },
+  { id: 'inspection-5', vehicleId: 'vehicle-2', status: 'maintenance_completed', priority: 'medium', inspectionAreas: ['Tires'], assignedTo: 'user-1', createdAt: '2026-08-27T12:00:00Z', isActive: false, workOrderId: 'work-order-2' },
 ] as VehicleMaintenanceInspection[]
 
 beforeEach(() => {
   vi.mocked(fleetService.listVehicles).mockResolvedValue(vehicles)
   vi.mocked(fleetService.listInspectionAssignees).mockResolvedValue([{ id: 'user-1', fullName: 'M. Perera', role: 'maintenance_manager' }])
-  vi.mocked(fleetService.listInspections).mockResolvedValue({ items: inspections, page: 1, limit: 100, total: 3, pages: 1 })
+  vi.mocked(fleetService.listInspections).mockResolvedValue({ items: inspections, page: 1, limit: 100, total: 5, pages: 1 })
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
@@ -48,5 +50,14 @@ describe('InspectionQueuePage', () => {
     await screen.findAllByText('WP CAA-1208')
     expect(screen.getAllByRole('link', { name: 'Open Inspection' })[0]).toHaveAttribute('href', '/maintenance/inspections/inspection-2')
     expect(screen.getAllByRole('link', { name: 'Review Outcome' })[0]).toHaveAttribute('href', '/maintenance/inspections/inspection-3/decision')
+  })
+
+  it('uses clear work-order actions for active and completed maintenance', async () => {
+    render(<MemoryRouter><InspectionQueuePage /></MemoryRouter>)
+    await screen.findAllByText('WP CAA-1208')
+
+    expect(screen.getAllByRole('link', { name: 'Open Related Work Order' })[0]).toHaveAttribute('href', '/maintenance/work-orders?workOrderId=work-order-1')
+    expect(screen.getAllByRole('link', { name: 'View Work Order' })[0]).toHaveAttribute('href', '/maintenance/work-orders?workOrderId=work-order-2')
+    expect(screen.queryByText('Linked Work')).not.toBeInTheDocument()
   })
 })

@@ -11,6 +11,7 @@ from app.models.alert_model import ALERT_COLLECTION
 from app.models.inspection_model import (
     INSPECTION_COLLECTION,
     WORK_ORDER_TERMINAL_STATUSES,
+    validate_inspection_transition,
     validate_work_order_transition,
 )
 from app.models.maintenance_model import (
@@ -245,6 +246,30 @@ async def create_inspection_work_order(
     })
     if active is not None:
         return safe_maintenance_document(active) or {}
+
+    # An inspection confirms work that may already have been scheduled manually.
+    # Link that open work instead of creating a second order for the same system.
+    reusable_filter = {
+        "vehicle_id": inspection["vehicle_id"],
+        "maintenance_system": maintenance_system,
+        "work_order_status": {"$in": ["planned", "approved", "in_progress"]},
+        "$or": [
+            {"inspection_id": {"$exists": False}},
+            {"inspection_id": None},
+        ],
+    }
+    reusable = await collection.find_one_and_update(
+        reusable_filter,
+        {"$set": {
+            "inspection_id": inspection["_id"],
+            "assessment_id": inspection.get("assessment_id"),
+            "prediction_review_id": review.get("_id") if review else None,
+            "updated_at": utc_now(),
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+    if reusable is not None:
+        return safe_maintenance_document(reusable) or {}
 
     vehicle = await _db()[VEHICLE_COLLECTION].find_one({"_id": inspection["vehicle_id"]})
     if vehicle is None:
@@ -490,6 +515,14 @@ async def complete_maintenance_record(record_id: str, completion_data: dict[str,
         pass
 
     if record.get("inspection_id"):
+        inspection_changes = {
+            "status": "maintenance_completed",
+            "is_active": False,
+            "maintenance_completed_at": now,
+            "maintenance_completed_by": resolver_id,
+            "updated_at": now,
+        }
+        validate_inspection_transition("maintenance_required", "maintenance_completed", inspection_changes)
         await _db()[INSPECTION_COLLECTION].find_one_and_update(
             {
                 "_id": record["inspection_id"],
@@ -497,12 +530,7 @@ async def complete_maintenance_record(record_id: str, completion_data: dict[str,
                 "status": "maintenance_required",
                 "is_active": True,
             },
-            {"$set": {
-                "is_active": False,
-                "maintenance_completed_at": now,
-                "maintenance_completed_by": resolver_id,
-                "updated_at": now,
-            }},
+            {"$set": inspection_changes},
             return_document=ReturnDocument.AFTER,
         )
     await _release_vehicle_if_ready(record, reassessment_succeeded=reassessment_succeeded)

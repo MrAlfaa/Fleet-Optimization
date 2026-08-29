@@ -11,15 +11,19 @@ from app.models.alert_model import ALERT_COLLECTION
 from app.models.delivery_model import DELIVERY_COLLECTION
 from app.models.driver_execution_model import DELIVERY_ATTEMPT_COLLECTION, DRIVER_ISSUE_COLLECTION
 from app.models.route_model import ROUTE_PLAN_COLLECTION, ROUTE_SEGMENT_COLLECTION
+from app.models.trip_model import TRIP_SESSION_COLLECTION
 from app.models.user_model import utc_now
 from app.models.vehicle_model import VEHICLE_COLLECTION
 from app.services.predictive_artifact_registry import predictive_artifact_registry
 from app.services.alert_service import create_alert, resolve_alert
 from app.services.delivery_service import update_delivery_status
-from app.services.live_trip_service import create_delivery_status_trip_event, create_driver_issue_trip_event
+from app.services.live_trip_service import create_delivery_status_trip_event, create_driver_issue_trip_event, create_trip_event
 from app.utils.object_id import serialize_mongo_document, serialize_mongo_list, serialize_object_id, validate_object_id
 from app.utils.sri_lanka_zones import enrich_zone_record
 from app.utils.branch_operations import build_delivery_schedule, delivery_batch_key
+
+
+TERMINAL_DELIVERY_STATUSES = {"delivered", "failed", "cancelled", "rescheduled"}
 
 
 def _db():
@@ -181,6 +185,63 @@ def _mobile_stop(row: dict[str, Any], sequence: int, route: dict[str, Any]) -> d
     }
 
 
+def _mobile_route_summary(route: dict[str, Any], total_distance_km: float) -> dict[str, Any]:
+    return {
+        "id": serialize_object_id(route["_id"]),
+        "route_code": route.get("route_code"),
+        "route_name": route.get("route_name") or route.get("route_code"),
+        "depot_name": route.get("depot_name") or "Depot",
+        "depot_latitude": route.get("depot_latitude"),
+        "depot_longitude": route.get("depot_longitude"),
+        "total_distance_km": total_distance_km,
+        "total_predicted_eta_minutes": float(route.get("total_predicted_eta_minutes") or 0),
+        "total_route_cost_score": float(route.get("total_route_cost_score") or 0),
+        "average_delay_probability": float(route.get("average_delay_probability") or 0),
+        "status": route.get("status"),
+        "driver_id": serialize_object_id(route.get("driver_id")),
+        "vehicle_id": serialize_object_id(route.get("vehicle_id")),
+        "delivery_date": route.get("delivery_date"),
+        "delivery_period": route.get("delivery_period"),
+        "consolidation_id": route.get("consolidation_id"),
+        "route_set_id": route.get("route_set_id"),
+        "load_plan_id": route.get("load_plan_id"),
+        "load_id": route.get("load_id"),
+        "assigned_stop_count": len(route.get("delivery_order_ids") or []),
+        "dispatched_at": _iso_or_none(route.get("dispatched_at")),
+    }
+
+
+def _navigation_summary(session: dict[str, Any] | None, delivery_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    session = session or {}
+    current_stop_id = session.get("current_stop_id")
+    current = next((row for row in delivery_rows if row.get("_id") == current_stop_id), None)
+    return {
+        "current_stop_id": serialize_object_id(current_stop_id),
+        "current_parcel_code": current.get("order_code") if current else None,
+        "current_customer_name": current.get("customer_name") if current else None,
+        "status": session.get("navigation_status", "idle"),
+        "started_at": _iso_or_none(session.get("navigation_started_at")),
+    }
+
+
+def _next_actionable_delivery(delivery_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return next(
+        (row for row in delivery_rows if row.get("delivery_status") not in TERMINAL_DELIVERY_STATUSES),
+        None,
+    )
+
+
+def _require_active_next_stop(route: dict[str, Any], delivery_rows: list[dict[str, Any]], order_id: ObjectId) -> dict[str, Any]:
+    if route.get("status") != "in_progress":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start the trip before navigating or updating a delivery stop")
+    next_order = _next_actionable_delivery(delivery_rows)
+    if next_order is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="All assigned delivery stops are already processed")
+    if next_order["_id"] != order_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Select the next route stop before continuing")
+    return next_order
+
+
 async def get_assigned_route(current_user: dict[str, Any]) -> dict[str, Any]:
     route = await get_assigned_route_raw(current_user)
     if route is None:
@@ -190,32 +251,57 @@ async def get_assigned_route(current_user: dict[str, Any]) -> dict[str, Any]:
     segments = await _db()[ROUTE_SEGMENT_COLLECTION].find({"route_plan_id": route["_id"]}).to_list(length=200)
     total_distance_km = sum(float(segment.get("distance_km") or 0) for segment in segments)
     stops = [_mobile_stop(row, index + 1, route) for index, row in enumerate(delivery_rows)]
-    next_stop = next(
-        (stop for stop in stops if stop["delivery_status"] not in {"delivered", "failed", "cancelled", "rescheduled"}),
-        None,
-    )
+    next_stop = next((stop for stop in stops if stop["delivery_status"] not in TERMINAL_DELIVERY_STATUSES), None)
+    session = await _db()[TRIP_SESSION_COLLECTION].find_one({"route_id": route["_id"], "status": "active"})
     return {
-        "route": {
-            "id": serialize_object_id(route["_id"]),
-            "route_code": route.get("route_code"),
-            "route_name": route.get("route_name") or route.get("route_code"),
-            "depot_name": route.get("depot_name") or "Depot",
-            "depot_latitude": route.get("depot_latitude"),
-            "depot_longitude": route.get("depot_longitude"),
-            "total_distance_km": total_distance_km,
-            "total_predicted_eta_minutes": float(route.get("total_predicted_eta_minutes") or 0),
-            "total_route_cost_score": float(route.get("total_route_cost_score") or 0),
-            "average_delay_probability": float(route.get("average_delay_probability") or 0),
-            "status": route.get("status"),
-            "driver_id": serialize_object_id(route.get("driver_id")),
-            "vehicle_id": serialize_object_id(route.get("vehicle_id")),
-            "delivery_date": route.get("delivery_date"),
-            "delivery_period": route.get("delivery_period"),
-            "dispatched_at": _iso_or_none(route.get("dispatched_at")),
-        },
+        "route": _mobile_route_summary(route, total_distance_km),
         "stops": stops,
         "next_stop": next_stop,
+        "navigation": _navigation_summary(session, delivery_rows),
     }
+
+
+async def start_driver_stop_navigation(order_id: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    route = await get_assigned_route_raw(current_user)
+    if route is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active route assigned to this driver")
+    try:
+        object_id = validate_object_id(order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid delivery order ID") from exc
+
+    delivery_rows = await _route_delivery_rows(route)
+    current = _require_active_next_stop(route, delivery_rows, object_id)
+    sessions = _db()[TRIP_SESSION_COLLECTION]
+    session = await sessions.find_one({"route_id": route["_id"], "status": "active"})
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start the trip before navigating to a parcel")
+    if session.get("current_stop_id") == object_id and session.get("navigation_status") in {"navigating", "arrived"}:
+        return _navigation_summary(session, delivery_rows)
+
+    now = utc_now()
+    await sessions.update_one(
+        {"_id": session["_id"], "status": "active"},
+        {"$set": {
+            "current_stop_id": object_id,
+            "navigation_status": "navigating",
+            "navigation_started_at": now,
+            "updated_at": now,
+        }},
+    )
+    session.update({"current_stop_id": object_id, "navigation_status": "navigating", "navigation_started_at": now})
+    await create_trip_event({
+        "trip_session_id": session["_id"],
+        "route_id": route["_id"],
+        "driver_id": route["driver_id"],
+        "vehicle_id": route.get("vehicle_id"),
+        "delivery_order_id": object_id,
+        "event_type": "navigation_started",
+        "title": "Navigation started",
+        "description": f"Driver started FleetOpt navigation to {current.get('order_code') or object_id}.",
+        "severity": "info",
+    })
+    return _navigation_summary(session, delivery_rows)
 
 
 async def get_driver_alerts(current_user: dict[str, Any]) -> list[dict[str, Any]]:
@@ -251,8 +337,26 @@ async def update_driver_delivery_status(order_id: str, status_value: str, curren
     if object_id not in route.get("delivery_order_ids", []):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Delivery order is not part of this driver's active route")
 
+    delivery_rows = await _route_delivery_rows(route)
+    _require_active_next_stop(route, delivery_rows, object_id)
+
     updated = await update_delivery_status(order_id, status_value)
     await create_delivery_status_trip_event(order_id, status_value, route, delivery)
+    session_update: dict[str, Any] | None = None
+    if status_value == "arrived":
+        session_update = {"navigation_status": "arrived", "updated_at": utc_now()}
+    elif status_value in TERMINAL_DELIVERY_STATUSES:
+        session_update = {
+            "current_stop_id": None,
+            "navigation_status": "idle",
+            "navigation_started_at": None,
+            "updated_at": utc_now(),
+        }
+    if session_update:
+        await _db()[TRIP_SESSION_COLLECTION].update_one(
+            {"route_id": route["_id"], "status": "active", "current_stop_id": object_id},
+            {"$set": session_update},
+        )
     return updated
 
 
@@ -267,6 +371,9 @@ async def mark_driver_delivery_incomplete(order_id: str, data: dict[str, Any], c
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Delivery order not found")
     if delivery.get("assigned_driver_id") != driver_id or order_object_id not in route.get("delivery_order_ids", []):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Delivery order is not assigned to this driver's active route")
+
+    delivery_rows = await _route_delivery_rows(route)
+    _require_active_next_stop(route, delivery_rows, order_object_id)
 
     existing = await _db()[DELIVERY_ATTEMPT_COLLECTION].find_one({"idempotency_key": data["idempotency_key"]})
     if existing:
@@ -391,22 +498,3 @@ async def acknowledge_driver_alert(alert_id: str, current_user: dict[str, Any]) 
     if alert_id not in visible_alert_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Alert is not visible to this driver")
     return await resolve_alert(alert_id, current_user)
-    if route.get("status") != "in_progress":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start the trip before updating a delivery stop")
-    ordered_rows = await _route_delivery_rows(route)
-    next_order = next(
-        (row for row in ordered_rows if row.get("delivery_status") not in {"delivered", "failed", "cancelled", "rescheduled"}),
-        None,
-    )
-    if next_order is not None and next_order["_id"] != object_id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete the next route stop before updating this delivery")
-
-    if route.get("status") != "in_progress":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start the trip before marking a delivery incomplete")
-    ordered_rows = await _route_delivery_rows(route)
-    next_order = next(
-        (row for row in ordered_rows if row.get("delivery_status") not in {"delivered", "failed", "cancelled", "rescheduled"}),
-        None,
-    )
-    if next_order is not None and next_order["_id"] != order_object_id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete the next route stop before updating this delivery")

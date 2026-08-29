@@ -43,6 +43,7 @@ abstract class DriverDataService {
   Future<DriverTripSession> startTrip();
   Future<DriverTripSession> endTrip();
   Future<void> sendLocation(DriverLocationUpdate location);
+  Future<DriverNavigationState> startStopNavigation(String orderId);
   Future<void> updateDeliveryStatus(String orderId, DeliveryStatus status);
   Future<void> markDeliveryIncomplete(
     String orderId, {

@@ -14,6 +14,7 @@ from app.services.load_optimization_service import (
     assess_batch_orders,
     candidate_generation_state,
     public_readiness_summary,
+    selected_parcel_load_map,
     vehicle_supports_virtual_load,
     validate_route_handoff,
     planning_change_requires_revision,
@@ -223,6 +224,24 @@ def test_route_handoff_requires_approved_exact_load_and_confirmed_vehicle():
         validate_route_handoff(plan, "load-1", "vehicle-1", ["a"])
     with pytest.raises(ValueError, match="confirmed physical vehicle"):
         validate_route_handoff(plan, "load-1", "vehicle-2", ["a", "b"])
+
+
+def test_selected_candidate_rebinds_parcels_to_approved_load_ids():
+    selected = {
+        "loads": [
+            {"load_id": "approved-load-1", "parcel_ids": ["a", "b"]},
+            {"load_id": "approved-load-2", "parcel_ids": ["c"]},
+        ],
+        "exceptions": [{"parcel_id": "d", "reasons": ["capacity"]}],
+    }
+
+    assignments = selected_parcel_load_map(selected)
+
+    assert assignments == {
+        "a": "approved-load-1",
+        "b": "approved-load-1",
+        "c": "approved-load-2",
+    }
 
 
 def test_planning_inputs_invalidate_a_saved_plan_but_customer_notes_do_not():

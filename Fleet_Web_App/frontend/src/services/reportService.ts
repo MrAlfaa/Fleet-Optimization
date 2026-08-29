@@ -22,7 +22,7 @@ export interface ReportExportQuery {
   vehicle_category?: 'car' | 'van' | 'truck' | 'bus'
   assessment_result?: 'low' | 'medium' | 'high' | 'critical'
   workflow_status?: 'clear' | 'service_hold' | 'inspection' | 'maintenance'
-  inspection_status?: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'decision_pending' | 'maintenance_required' | 'returned_to_service' | 'cancelled'
+  inspection_status?: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'decision_pending' | 'maintenance_required' | 'maintenance_completed' | 'returned_to_service' | 'cancelled'
   zone_id?: string
   demand_level?: 'low' | 'medium' | 'high' | 'very_high'
   route_status?: 'draft' | 'optimized' | 'approved' | 'dispatched' | 'in_progress' | 'completed' | 'cancelled'

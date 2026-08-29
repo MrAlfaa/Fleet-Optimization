@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../app/fleetopt_driver_app.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/driver_models.dart';
-import '../../services/map_navigation_service.dart';
 import '../../widgets/fleet_widgets.dart';
+import 'fleet_navigation_screen.dart';
 
 class StopDetailScreen extends StatelessWidget {
   const StopDetailScreen({super.key, required this.stopId});
@@ -107,18 +107,20 @@ class StopDetailScreen extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           FleetButton(
-            label: 'Launch Google Maps',
+            label: 'Open FleetOpt navigation',
             icon: Icons.navigation_outlined,
             onPressed: () async {
-              final opened = await GoogleMapsNavigation.openStop(stop);
-              if (!context.mounted || opened) {
-                return;
+              if (canUpdate && !controller.route.navigation.isNavigating) {
+                final started = await controller.startNavigationToStop(stop.id);
+                if (!started || !context.mounted) return;
               }
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Unable to open Google Maps navigation.'),
-                ),
-              );
+              if (context.mounted) {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const FleetNavigationScreen(),
+                  ),
+                );
+              }
             },
           ),
           const SizedBox(height: 14),

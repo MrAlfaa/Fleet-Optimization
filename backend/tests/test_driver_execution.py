@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
+from bson import ObjectId
 from pydantic import ValidationError
 
 from app.schemas.driver_schema import (
@@ -10,7 +11,15 @@ from app.schemas.driver_schema import (
     PreTripInspectionRequest,
 )
 from app.services.driver_inspection_service import inspection_blocking_reasons, inspection_model_features
-from app.services.driver_service import _mobile_stop, _optimized_delivery_ids, calculate_next_delivery_schedule
+from app.services.driver_service import (
+    _mobile_route_summary,
+    _mobile_stop,
+    _navigation_summary,
+    _optimized_delivery_ids,
+    calculate_next_delivery_schedule,
+    start_driver_stop_navigation,
+)
+from app.services.live_trip_service import _live_navigation_card
 from scripts.seed_users import DEMO_USERS
 
 
@@ -101,6 +110,132 @@ def test_mobile_stop_includes_actionable_parcel_details():
     assert stop["parcel_weight_kg"] == 12.5
     assert stop["dimensions_cm"] == {"length": 60.0, "width": 40.0, "height": 35.0}
     assert stop["handling"] == ["Fragile", "Do not tilt"]
+
+
+def test_mobile_route_summary_exposes_consolidation_and_load_ownership():
+    summary = _mobile_route_summary({
+        "_id": "route-id",
+        "route_code": "ROUTE-PCID-001",
+        "route_name": "Consolidated load route",
+        "consolidation_id": "PCID202608292H001",
+        "route_set_id": "RSET-20260829-001",
+        "load_plan_id": "LOADPLAN-20260829-001",
+        "load_id": "LOAD-001",
+        "delivery_order_ids": ["order-a", "order-b"],
+        "status": "dispatched",
+    }, total_distance_km=18.4)
+
+    assert summary["consolidation_id"] == "PCID202608292H001"
+    assert summary["route_set_id"] == "RSET-20260829-001"
+    assert summary["load_plan_id"] == "LOADPLAN-20260829-001"
+    assert summary["load_id"] == "LOAD-001"
+    assert summary["assigned_stop_count"] == 2
+
+
+def test_navigation_summary_exposes_current_stop_identity():
+    stop_id = ObjectId()
+
+    summary = _navigation_summary(
+        {
+            "current_stop_id": stop_id,
+            "navigation_status": "navigating",
+            "navigation_started_at": datetime(2026, 8, 29, 4, 15, tzinfo=timezone.utc),
+        },
+        [{"_id": stop_id, "order_code": "QA-ORD-001", "customer_name": "QA Customer"}],
+    )
+
+    assert summary == {
+        "current_stop_id": str(stop_id),
+        "current_parcel_code": "QA-ORD-001",
+        "current_customer_name": "QA Customer",
+        "status": "navigating",
+        "started_at": "2026-08-29T04:15:00+00:00",
+    }
+
+
+def test_live_navigation_card_keeps_current_parcel_for_web_monitoring():
+    stop_id = ObjectId()
+
+    card = _live_navigation_card(
+        {"current_stop_id": stop_id, "navigation_status": "arrived"},
+        {"_id": stop_id, "order_code": "QA-ORD-001", "customer_name": "QA Customer"},
+    )
+
+    assert card["current_stop_id"] == str(stop_id)
+    assert card["current_parcel_code"] == "QA-ORD-001"
+    assert card["current_customer_name"] == "QA Customer"
+    assert card["status"] == "arrived"
+
+
+class _NavigationSessionCollection:
+    def __init__(self, session):
+        self.session = session
+        self.update_calls = []
+
+    async def find_one(self, query):
+        if query.get("route_id") == self.session["route_id"] and query.get("status") == "active":
+            return dict(self.session)
+        return None
+
+    async def update_one(self, query, update):
+        self.update_calls.append((query, update))
+        self.session.update(update["$set"])
+
+
+@pytest.mark.asyncio
+async def test_start_navigation_activates_only_the_next_route_stop(monkeypatch):
+    from app.models.trip_model import TRIP_SESSION_COLLECTION
+    from app.services import driver_service
+
+    driver_id = ObjectId()
+    route_id = ObjectId()
+    completed_id = ObjectId()
+    next_id = ObjectId()
+    later_id = ObjectId()
+    route = {
+        "_id": route_id,
+        "driver_id": driver_id,
+        "vehicle_id": ObjectId(),
+        "status": "in_progress",
+    }
+    rows = [
+        {"_id": completed_id, "delivery_status": "delivered"},
+        {"_id": next_id, "delivery_status": "in_route", "order_code": "QA-NEXT"},
+        {"_id": later_id, "delivery_status": "in_route", "order_code": "QA-LATER"},
+    ]
+    sessions = _NavigationSessionCollection(
+        {"_id": ObjectId(), "route_id": route_id, "status": "active"}
+    )
+    events = []
+
+    async def assigned_route(_):
+        return route
+
+    async def ordered_rows(_):
+        return rows
+
+    async def create_event(data):
+        events.append(data)
+        return data
+
+    monkeypatch.setattr(driver_service, "get_assigned_route_raw", assigned_route)
+    monkeypatch.setattr(driver_service, "_route_delivery_rows", ordered_rows)
+    monkeypatch.setattr(driver_service, "_db", lambda: {TRIP_SESSION_COLLECTION: sessions})
+    monkeypatch.setattr(driver_service, "create_trip_event", create_event)
+
+    result = await start_driver_stop_navigation(str(next_id), {"id": str(driver_id)})
+
+    assert result["current_stop_id"] == str(next_id)
+    assert result["status"] == "navigating"
+    assert len(events) == 1
+    assert events[0]["event_type"] == "navigation_started"
+
+    repeated = await start_driver_stop_navigation(str(next_id), {"id": str(driver_id)})
+    assert repeated["current_stop_id"] == str(next_id)
+    assert len(events) == 1
+
+    with pytest.raises(Exception, match="next route stop"):
+        await start_driver_stop_navigation(str(later_id), {"id": str(driver_id)})
 
 
 def test_seeded_demo_driver_has_mobile_enrollment_username():

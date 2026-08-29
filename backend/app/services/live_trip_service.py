@@ -48,6 +48,17 @@ def _iso_or_none(value: Any) -> str | None:
     return str(value)
 
 
+def _live_navigation_card(session: dict[str, Any] | None, delivery: dict[str, Any] | None) -> dict[str, Any]:
+    session = session or {}
+    return {
+        "current_stop_id": serialize_object_id(session.get("current_stop_id")),
+        "current_parcel_code": delivery.get("order_code") if delivery else None,
+        "current_customer_name": delivery.get("customer_name") if delivery else None,
+        "status": session.get("navigation_status", "idle"),
+        "started_at": _iso_or_none(session.get("navigation_started_at")),
+    }
+
+
 async def get_assigned_trip_route(current_user: dict[str, Any]) -> dict[str, Any] | None:
     driver_id = _driver_object_id(current_user)
     return await _db()[ROUTE_PLAN_COLLECTION].find_one(
@@ -297,6 +308,9 @@ async def _vehicle_identity(vehicle_id: ObjectId | None) -> dict[str, str]:
 async def _live_trip_card(route: dict[str, Any], session: dict[str, Any] | None = None) -> dict[str, Any]:
     session = session or await _active_session_for_route(route)
     vehicle_identity = await _vehicle_identity(route.get("vehicle_id"))
+    current_delivery = None
+    if session and session.get("current_stop_id"):
+        current_delivery = await _db()[DELIVERY_COLLECTION].find_one({"_id": session["current_stop_id"]})
     return {
         "route_id": serialize_object_id(route["_id"]),
         "route_code": route.get("route_code"),
@@ -312,6 +326,7 @@ async def _live_trip_card(route: dict[str, Any], session: dict[str, Any] | None 
         "latest_location": await _latest_location(route["_id"]),
         "progress": await _progress(route),
         "latest_event": await _latest_event(route["_id"]),
+        "navigation": _live_navigation_card(session, current_delivery),
     }
 
 

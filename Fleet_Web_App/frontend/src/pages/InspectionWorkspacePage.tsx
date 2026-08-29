@@ -12,7 +12,7 @@ import { fleetService } from '../services/fleetService'
 import type { InspectionChecklistItem, VehicleMaintenanceInspection } from '../types'
 import { showToast } from '../utils/toast'
 
-const readOnlyStatuses = new Set(['completed', 'decision_pending', 'maintenance_required', 'returned_to_service', 'cancelled'])
+const readOnlyStatuses = new Set(['completed', 'decision_pending', 'maintenance_required', 'maintenance_completed', 'returned_to_service', 'cancelled'])
 
 export function InspectionWorkspacePage() {
   const { inspectionId = '' } = useParams()
@@ -154,7 +154,7 @@ function toPayload(items: InspectionChecklistFormItem[]): InspectionChecklistIte
 function areaKey(area: string, index: number) { return area.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `inspection_area_${index + 1}` }
 function errorMessage(cause: unknown, fallback: string) { return cause instanceof Error ? cause.message : fallback }
 function formatDateTime(value: string | null) { if (!value) return 'Unknown'; const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString() }
-function statusTone(status: VehicleMaintenanceInspection['status']): 'green' | 'red' | 'blue' | 'amber' | 'slate' { return status === 'returned_to_service' ? 'green' : status === 'maintenance_required' || status === 'cancelled' ? 'red' : status === 'in_progress' ? 'blue' : status === 'decision_pending' ? 'amber' : 'slate' }
+function statusTone(status: VehicleMaintenanceInspection['status']): 'green' | 'red' | 'blue' | 'amber' | 'slate' { return status === 'returned_to_service' || status === 'maintenance_completed' ? 'green' : status === 'maintenance_required' || status === 'cancelled' ? 'red' : status === 'in_progress' ? 'blue' : status === 'decision_pending' ? 'amber' : 'slate' }
 
 function useElapsed(startedAt: string | null, completedAt: string | null) {
   const [now, setNow] = useState<number | null>(completedAt ? new Date(completedAt).getTime() : null)

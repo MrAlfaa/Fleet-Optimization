@@ -56,6 +56,7 @@ function mapTripEvent(raw: unknown, fallbackId: string): TripEvent | null {
 function mapLiveTrip(raw: RecordLike): LiveTrip {
   const latestLocation = raw.latest_location && typeof raw.latest_location === 'object' ? raw.latest_location as RecordLike : null
   const progress = raw.progress && typeof raw.progress === 'object' ? raw.progress as RecordLike : {}
+  const navigation = raw.navigation && typeof raw.navigation === 'object' ? raw.navigation as RecordLike : {}
   const routeId = stringValue(raw.route_id)
   return {
     routeId,
@@ -75,6 +76,13 @@ function mapLiveTrip(raw: RecordLike): LiveTrip {
       completedStops: numberValue(progress.completed_stops),
     },
     latestEvent: mapTripEvent(raw.latest_event, routeId),
+    navigation: {
+      currentStopId: stringValue(navigation.current_stop_id),
+      currentParcelCode: stringValue(navigation.current_parcel_code),
+      currentCustomerName: stringValue(navigation.current_customer_name),
+      status: stringValue(navigation.status, 'idle'),
+      startedAt: stringValue(navigation.started_at),
+    },
   }
 }
 

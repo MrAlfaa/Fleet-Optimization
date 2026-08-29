@@ -165,4 +165,29 @@ void main() {
       expect(route.nextStop?.handling, ['Fragile', 'Do not tilt']);
     },
   );
+
+  test('assigned route keeps consolidation and load ownership', () {
+    final route = DriverRoute.fromAssignedRouteJson({
+      'route': {
+        'id': 'route-1',
+        'route_name': 'Consolidated load route',
+        'consolidation_id': 'PCID202608292H001',
+        'route_set_id': 'RSET-20260829-001',
+        'load_plan_id': 'LOADPLAN-20260829-001',
+        'load_id': 'LOAD-001',
+        'assigned_stop_count': 2,
+      },
+      'stops': [
+        {'id': 'one', 'sequence': 1},
+        {'id': 'two', 'sequence': 2},
+      ],
+    });
+
+    expect(route.consolidationId, 'PCID202608292H001');
+    expect(route.routeSetId, 'RSET-20260829-001');
+    expect(route.loadPlanId, 'LOADPLAN-20260829-001');
+    expect(route.loadId, 'LOAD-001');
+    expect(route.assignedStopCount, 2);
+    expect(route.stops, hasLength(2));
+  });
 }

@@ -289,6 +289,54 @@ class RouteStop {
   }
 }
 
+class DriverNavigationState {
+  const DriverNavigationState({
+    required this.currentStopId,
+    required this.currentParcelCode,
+    required this.currentCustomerName,
+    required this.status,
+    required this.startedAt,
+  });
+
+  const DriverNavigationState.idle()
+    : currentStopId = '',
+      currentParcelCode = '',
+      currentCustomerName = '',
+      status = 'idle',
+      startedAt = '';
+
+  final String currentStopId;
+  final String currentParcelCode;
+  final String currentCustomerName;
+  final String status;
+  final String startedAt;
+
+  bool get isNavigating => status == 'navigating' || status == 'arrived';
+
+  DriverNavigationState copyWith({String? status}) {
+    return DriverNavigationState(
+      currentStopId: currentStopId,
+      currentParcelCode: currentParcelCode,
+      currentCustomerName: currentCustomerName,
+      status: status ?? this.status,
+      startedAt: startedAt,
+    );
+  }
+
+  factory DriverNavigationState.fromJson(Object? value) {
+    if (value is! Map<String, dynamic>) {
+      return const DriverNavigationState.idle();
+    }
+    return DriverNavigationState(
+      currentStopId: _stringValue(value['current_stop_id'], ''),
+      currentParcelCode: _stringValue(value['current_parcel_code'], ''),
+      currentCustomerName: _stringValue(value['current_customer_name'], ''),
+      status: _stringValue(value['status'], 'idle'),
+      startedAt: _stringValue(value['started_at'], ''),
+    );
+  }
+}
+
 class DriverRoute {
   const DriverRoute({
     required this.id,
@@ -302,6 +350,12 @@ class DriverRoute {
     this.status = 'dispatched',
     this.deliveryDate = '',
     this.deliveryPeriod = '',
+    this.consolidationId = '',
+    this.routeSetId = '',
+    this.loadPlanId = '',
+    this.loadId = '',
+    this.assignedStopCount = 0,
+    this.navigation = const DriverNavigationState.idle(),
   });
 
   final String id;
@@ -315,6 +369,12 @@ class DriverRoute {
   final String status;
   final String deliveryDate;
   final String deliveryPeriod;
+  final String consolidationId;
+  final String routeSetId;
+  final String loadPlanId;
+  final String loadId;
+  final int assignedStopCount;
+  final DriverNavigationState navigation;
   bool get isInProgress => status == 'in_progress';
 
   int get completedStops =>
@@ -332,7 +392,10 @@ class DriverRoute {
 
   bool get hasAssignedRoute => id.isNotEmpty && stops.isNotEmpty;
 
-  DriverRoute copyWith({List<RouteStop>? stops}) {
+  DriverRoute copyWith({
+    List<RouteStop>? stops,
+    DriverNavigationState? navigation,
+  }) {
     return DriverRoute(
       id: id,
       title: title,
@@ -345,6 +408,12 @@ class DriverRoute {
       status: status,
       deliveryDate: deliveryDate,
       deliveryPeriod: deliveryPeriod,
+      consolidationId: consolidationId,
+      routeSetId: routeSetId,
+      loadPlanId: loadPlanId,
+      loadId: loadId,
+      assignedStopCount: assignedStopCount,
+      navigation: navigation ?? this.navigation,
     );
   }
 
@@ -361,6 +430,12 @@ class DriverRoute {
       status: 'unassigned',
       deliveryDate: '',
       deliveryPeriod: '',
+      consolidationId: '',
+      routeSetId: '',
+      loadPlanId: '',
+      loadId: '',
+      assignedStopCount: 0,
+      navigation: DriverNavigationState.idle(),
     );
   }
 
@@ -392,6 +467,12 @@ class DriverRoute {
       status: _stringValue(route['status'], 'dispatched'),
       deliveryDate: _stringValue(route['delivery_date'], ''),
       deliveryPeriod: _stringValue(route['delivery_period'], ''),
+      consolidationId: _stringValue(route['consolidation_id'], ''),
+      routeSetId: _stringValue(route['route_set_id'], ''),
+      loadPlanId: _stringValue(route['load_plan_id'], ''),
+      loadId: _stringValue(route['load_id'], ''),
+      assignedStopCount: _intValue(route['assigned_stop_count'], stops.length),
+      navigation: DriverNavigationState.fromJson(json['navigation']),
     );
   }
 }

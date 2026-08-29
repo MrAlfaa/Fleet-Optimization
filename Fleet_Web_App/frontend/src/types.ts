@@ -220,6 +220,7 @@ export type InspectionStatus =
   | 'completed'
   | 'decision_pending'
   | 'maintenance_required'
+  | 'maintenance_completed'
   | 'returned_to_service'
   | 'cancelled'
 
@@ -522,6 +523,13 @@ export interface LiveTrip {
     completedStops: number
   }
   latestEvent: TripEvent | null
+  navigation: {
+    currentStopId: string
+    currentParcelCode: string
+    currentCustomerName: string
+    status: string
+    startedAt: string
+  }
 }
 
 export interface LiveTripLocation {

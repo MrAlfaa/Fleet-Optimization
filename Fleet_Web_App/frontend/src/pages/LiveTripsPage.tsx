@@ -90,10 +90,15 @@ export function LiveTripsPage() {
           {latestTrip && (
             <Card title="Latest Active Driver">
               <div className="space-y-3 text-sm font-semibold">
+                <div className="flex items-center justify-between gap-3"><span className="text-fleet-muted">Navigation</span><StatusBadge tone={latestTrip.navigation.status === 'arrived' ? 'amber' : latestTrip.navigation.status === 'navigating' ? 'green' : 'slate'}>{latestTrip.navigation.status === 'navigating' ? 'Navigating' : latestTrip.navigation.status === 'arrived' ? 'Arrived' : 'Waiting'}</StatusBadge></div>
                 <div className="flex justify-between gap-3"><span className="text-fleet-muted">Route</span><span>{latestTrip.routeCode}</span></div>
                 <div className="flex justify-between gap-3"><span className="text-fleet-muted">Driver</span><span>{latestTrip.driverName}</span></div>
                 <div className="flex justify-between gap-3"><span className="text-fleet-muted">Vehicle</span><span>{latestTrip.vehicleCode}</span></div>
                 <div className="flex justify-between gap-3"><span className="text-fleet-muted">Progress</span><span>{latestTrip.progress.completedStops}/{latestTrip.progress.totalStops}</span></div>
+                {latestTrip.navigation.currentStopId && <>
+                  <div className="flex justify-between gap-3"><span className="text-fleet-muted">Current parcel</span><span>{latestTrip.navigation.currentParcelCode}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-fleet-muted">Customer</span><span>{latestTrip.navigation.currentCustomerName}</span></div>
+                </>}
                 <div className="flex justify-between gap-3"><span className="text-fleet-muted">Last GPS</span><span>{latestTrip.latestLocation?.recordedAt ?? 'Waiting'}</span></div>
               </div>
             </Card>

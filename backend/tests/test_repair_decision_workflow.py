@@ -259,6 +259,67 @@ async def test_maintenance_required_confirms_review_creates_one_order_and_holds_
 
 
 @pytest.mark.asyncio
+async def test_maintenance_required_reuses_matching_open_vehicle_work_order(monkeypatch) -> None:
+    db, inspection = _base_records(review_status=None)
+    existing_order_id = ObjectId()
+    db[MAINTENANCE_COLLECTION].rows.append({
+        "_id": existing_order_id,
+        "vehicle_id": inspection["vehicle_id"],
+        "part_id": None,
+        "part_name": "Front brake pads",
+        "maintenance_type": "preventive",
+        "maintenance_system": "braking",
+        "event_kind": "scheduled_service",
+        "issue_type": "Scheduled front brake service",
+        "service_date": NOW,
+        "mileage_at_service": 48_200.0,
+        "technician_name": "Nimal Perera",
+        "service_center": None,
+        "cost": 18_500.0,
+        "status": "scheduled",
+        "priority": "medium",
+        "notes": "Existing planned braking work",
+        "prediction_review_id": None,
+        "inspection_id": None,
+        "assessment_id": None,
+        "work_order_status": "planned",
+        "estimated_cost": 18_500.0,
+        "actual_cost": None,
+        "record_source": "operational",
+        "created_by": ObjectId(),
+        "created_at": NOW,
+        "updated_at": NOW,
+    })
+    monkeypatch.setattr(inspection_service, "_db", lambda: db)
+    monkeypatch.setattr(maintenance_service, "_db", lambda: db)
+    monkeypatch.setattr(maintenance_service, "get_maintenance_collection", lambda: db[MAINTENANCE_COLLECTION])
+    monkeypatch.setattr(inspection_service, "utc_now", lambda: NOW)
+    monkeypatch.setattr(maintenance_service, "utc_now", lambda: NOW)
+
+    result = await inspection_service.decide_inspection(
+        str(inspection["_id"]),
+        {
+            "decision": "maintenance_required",
+            "notes": "Brake wear confirmed during inspection",
+            "maintenance_system": "braking",
+            "issue_type": "Brake wear beyond limit",
+            "priority": "high",
+            "estimated_cost": 42_500,
+        },
+        _actor(),
+    )
+
+    assert len(db[MAINTENANCE_COLLECTION].rows) == 1
+    assert result["work_order"]["id"] == str(existing_order_id)
+    linked = db[MAINTENANCE_COLLECTION].rows[0]
+    assert linked["inspection_id"] == inspection["_id"]
+    assert linked["assessment_id"] == inspection["assessment_id"]
+    assert linked["maintenance_type"] == "preventive"
+    assert linked["issue_type"] == "Scheduled front brake service"
+    assert result["inspection"]["work_order_id"] == str(existing_order_id)
+
+
+@pytest.mark.asyncio
 async def test_return_to_service_rejects_confirmed_issue_and_clears_pending_review(monkeypatch) -> None:
     confirmed_db, inspection = _base_records(review_status="confirmed")
     monkeypatch.setattr(inspection_service, "_db", lambda: confirmed_db)
@@ -478,7 +539,22 @@ async def test_completion_requires_evidence_reassesses_closes_inspection_and_rel
     assert completed["completion_evidence"] == "Brake pads replaced and road test passed"
     assert completed_retry["id"] == completed["id"]
     assert db[INSPECTION_COLLECTION].rows[0]["is_active"] is False
+    assert db[INSPECTION_COLLECTION].rows[0]["status"] == "maintenance_completed"
     assert db[VEHICLE_COLLECTION].rows[0]["status"] == "active"
+
+
+def test_public_inspection_normalizes_legacy_completed_maintenance_status() -> None:
+    inspection = {
+        "_id": ObjectId(),
+        "status": "maintenance_required",
+        "is_active": False,
+        "maintenance_completed_at": NOW,
+    }
+
+    public = inspection_service._public(inspection)
+
+    assert public is not None
+    assert public["status"] == "maintenance_completed"
 
 
 async def _noop(*args, **kwargs):

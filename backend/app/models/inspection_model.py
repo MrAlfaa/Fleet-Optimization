@@ -20,13 +20,14 @@ INSPECTION_STATUSES = {
     "completed",
     "decision_pending",
     "maintenance_required",
+    "maintenance_completed",
     "returned_to_service",
     "cancelled",
 }
 INSPECTION_PRIORITIES = {"low", "medium", "high", "critical"}
 INSPECTION_DECISIONS = {"maintenance_required", "returned_to_service"}
 INSPECTION_CHECK_OUTCOMES = {"passed", "failed", "not_applicable"}
-INSPECTION_TERMINAL_STATUSES = {"maintenance_required", "returned_to_service", "cancelled"}
+INSPECTION_TERMINAL_STATUSES = {"maintenance_completed", "returned_to_service", "cancelled"}
 
 WORK_ORDER_STATUSES = {"planned", "approved", "in_progress", "completed", "cancelled"}
 WORK_ORDER_TERMINAL_STATUSES = {"completed", "cancelled"}
@@ -37,7 +38,8 @@ INSPECTION_TRANSITIONS: dict[str, set[str]] = {
     "in_progress": {"completed", "cancelled"},
     "completed": {"decision_pending"},
     "decision_pending": {"maintenance_required", "returned_to_service"},
-    "maintenance_required": set(),
+    "maintenance_required": {"maintenance_completed"},
+    "maintenance_completed": set(),
     "returned_to_service": set(),
     "cancelled": set(),
 }
@@ -56,6 +58,7 @@ _INSPECTION_REQUIRED_TRANSITION_FIELDS: dict[str, tuple[str, ...]] = {
     "completed": ("completed_by", "completed_at"),
     "decision_pending": ("decision_pending_by", "decision_pending_at"),
     "maintenance_required": ("decision", "decided_by", "decided_at"),
+    "maintenance_completed": ("maintenance_completed_by", "maintenance_completed_at"),
     "returned_to_service": ("decision", "decided_by", "decided_at"),
     "cancelled": ("cancelled_by", "cancelled_at", "cancellation_reason"),
 }

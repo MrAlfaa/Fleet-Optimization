@@ -1279,7 +1279,7 @@ async def build_specialized_xlsx_report(
                     priority_counts[priority] += 1
             status_order = (
                 "pending", "assigned", "in_progress", "decision_pending", "maintenance_required",
-                "returned_to_service", "cancelled", "completed",
+                "maintenance_completed", "returned_to_service", "cancelled", "completed",
             )
             for status_value in status_order:
                 _append_safe(summary, (_humanize(status_value), status_counts[status_value]))

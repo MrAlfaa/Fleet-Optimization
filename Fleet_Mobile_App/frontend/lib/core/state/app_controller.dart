@@ -140,6 +140,26 @@ class AppController extends ChangeNotifier {
   Future<void> endTripWithInspection(PostTripInspection inspection) async =>
       _endTrip(inspection);
 
+  Future<bool> startNavigationToStop(String stopId) async {
+    if (!tripActive) {
+      error = 'Start the assigned trip before opening FleetOpt navigation.';
+      notifyListeners();
+      return false;
+    }
+    error = null;
+    try {
+      final navigation = await driverService.startStopNavigation(stopId);
+      route = route.copyWith(navigation: navigation);
+      await _sendLocationUpdate(showPermissionWarning: true);
+      notifyListeners();
+      return true;
+    } catch (exception) {
+      error = exception.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> updateStopStatus(String stopId, DeliveryStatus status) async {
     error = null;
     try {
@@ -243,6 +263,11 @@ class AppController extends ChangeNotifier {
           await driverService.getAssignedVehicle() ?? AssignedVehicle.empty();
       route = await driverService.getTodayRoute() ?? DriverRoute.empty();
       tripActive = route.isInProgress;
+      if (tripActive) {
+        _startLocationTimer();
+      } else {
+        _stopLocationTimer();
+      }
       routeGeometry = RouteGeometry.fallbackFor(route);
       if (route.hasAssignedRoute) {
         try {
@@ -395,7 +420,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _sendLocationUpdate({bool showPermissionWarning = false}) async {
-    final location = await locationService.getCurrentLocation();
+    DriverLocationUpdate? location;
+    try {
+      location = await locationService.getCurrentLocation();
+    } catch (_) {
+      location = null;
+    }
     if (location == null) {
       locationSharingUnavailable = true;
       if (showPermissionWarning) {
@@ -417,6 +447,7 @@ class AppController extends ChangeNotifier {
       await driverService.sendLocation(location);
       currentLocation = location;
       locationSharingUnavailable = false;
+      notifyListeners();
     } catch (_) {
       _stopLocationTimer();
       error = 'Unable to send live location. Location sync stopped.';

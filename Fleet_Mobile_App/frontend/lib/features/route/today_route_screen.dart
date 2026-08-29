@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import '../../app/fleetopt_driver_app.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/driver_models.dart';
-import '../../services/map_navigation_service.dart';
 import '../../widgets/fleet_widgets.dart';
 import 'assigned_route_map.dart';
+import 'fleet_navigation_screen.dart';
 import 'stop_detail_screen.dart';
 
 class TodayRouteScreen extends StatelessWidget {
@@ -86,7 +86,8 @@ class TodayRouteScreen extends StatelessWidget {
                       runSpacing: 8,
                       children: [
                         StatusPill(
-                          label: '${controller.route.stops.length} stops',
+                          label:
+                              '${controller.route.assignedStopCount} assigned stops',
                           color: AppColors.primary,
                         ),
                         StatusPill(
@@ -159,18 +160,28 @@ class TodayRouteScreen extends StatelessWidget {
                   ],
                   const SizedBox(height: 12),
                   FleetButton(
-                    label: 'Start navigation to next parcel',
+                    label: 'Start FleetOpt navigation',
                     icon: Icons.navigation_rounded,
                     onPressed: () async {
-                      final opened = await GoogleMapsNavigation.openStop(
-                        nextStop,
+                      final started = await controller.startNavigationToStop(
+                        nextStop.id,
                       );
-                      if (!context.mounted || opened) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Unable to open navigation.'),
-                        ),
-                      );
+                      if (!context.mounted) return;
+                      if (started) {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const FleetNavigationScreen(),
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              controller.error ?? 'Unable to start navigation.',
+                            ),
+                          ),
+                        );
+                      }
                     },
                   ),
                 ],
@@ -180,28 +191,33 @@ class TodayRouteScreen extends StatelessWidget {
           const SizedBox(height: 14),
         ],
         FleetButton(
-          label: 'Open full route in Google Maps',
+          label: 'Open FleetOpt route navigator',
           icon: Icons.map_outlined,
-          onPressed: () async {
-            final opened = await GoogleMapsNavigation.openRoute(
-              controller.route,
-            );
-            if (!context.mounted || opened) {
-              return;
-            }
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Unable to open the full route in Google Maps.'),
-              ),
-            );
-          },
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const FleetNavigationScreen()),
+          ),
         ),
         if (controller.route.deliveryDate.isNotEmpty) ...[
           const SizedBox(height: 10),
           FleetCard(
-            child: Text(
-              '${controller.route.deliveryDate} · ${controller.route.deliveryPeriod == 'second_half' ? 'Second Half (13:00–17:00)' : 'First Half (08:00–12:00)'}',
-              style: const TextStyle(fontWeight: FontWeight.w800),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${controller.route.deliveryDate} · ${controller.route.deliveryPeriod == 'second_half' ? 'Second Half (13:00–17:00)' : 'First Half (08:00–12:00)'}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                if (controller.route.consolidationId.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Consolidation ${controller.route.consolidationId} · Load ${controller.route.loadId}',
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],

@@ -32,7 +32,7 @@ async def export_report(
     workflow_status: Literal["clear", "service_hold", "inspection", "maintenance"] | None = None,
     inspection_status: Literal[
         "pending", "assigned", "in_progress", "completed", "decision_pending",
-        "maintenance_required", "returned_to_service", "cancelled",
+        "maintenance_required", "maintenance_completed", "returned_to_service", "cancelled",
     ] | None = None,
     zone_id: str | None = Query(default=None, max_length=80),
     demand_level: Literal["low", "medium", "high", "very_high"] | None = None,

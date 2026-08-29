@@ -114,6 +114,10 @@ async def create_route_set(load_plan_id: str, current_user: dict[str, Any]) -> d
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
+    # Repairs plans approved before candidate-selection parcel rebinding was enforced.
+    from app.services.load_optimization_service import synchronize_approved_plan_deliveries
+    await synchronize_approved_plan_deliveries(plan)
+
     now = utc_now()
     route_set_id = str(existing["route_set_id"]) if existing else f"RSET-{now:%Y%m%d}-{uuid.uuid4().hex[:8].upper()}"
     document = {

@@ -155,6 +155,15 @@ class DriverApiService implements DriverDataService {
   }
 
   @override
+  Future<DriverNavigationState> startStopNavigation(String orderId) async {
+    final data = await _apiClient.post<Map<String, dynamic>>(
+      '/driver/deliveries/$orderId/navigation/start',
+      {},
+    );
+    return DriverNavigationState.fromJson(data);
+  }
+
+  @override
   Future<void> updateDeliveryStatus(
     String orderId,
     DeliveryStatus status,

@@ -297,7 +297,7 @@ export function ReportsPage() {
               {showInspectionFilter && <label className={labelClass}>Inspection status
                 <select aria-label="Inspection status" className={inputClass} onChange={(event) => setInspectionStatus(event.target.value as InspectionStatus | '')} value={inspectionStatus}>
                   <option value="">All inspection states</option>
-                  {(['pending', 'assigned', 'in_progress', 'completed', 'decision_pending', 'maintenance_required', 'returned_to_service', 'cancelled'] as const).map((value) => <option key={value} value={value}>{optionLabel(value)}</option>)}
+                  {(['pending', 'assigned', 'in_progress', 'completed', 'decision_pending', 'maintenance_required', 'maintenance_completed', 'returned_to_service', 'cancelled'] as const).map((value) => <option key={value} value={value}>{optionLabel(value)}</option>)}
                 </select>
               </label>}
               {showDemandFilters && <label className={labelClass}>Operational zone

@@ -35,6 +35,7 @@ NOW = datetime(2026, 8, 27, 9, 30, tzinfo=timezone.utc)
         ("inspection", "in_progress", "completed"),
         ("inspection", "completed", "decision_pending"),
         ("inspection", "decision_pending", "maintenance_required"),
+        ("inspection", "maintenance_required", "maintenance_completed"),
         ("inspection", "decision_pending", "returned_to_service"),
         ("inspection", "pending", "cancelled"),
         ("inspection", "assigned", "cancelled"),
@@ -53,6 +54,7 @@ def test_state_machines_accept_only_frozen_forward_transitions(domain: str, curr
         "decision_pending_by": ObjectId(), "decision_pending_at": NOW,
         "decision": target if target in {"maintenance_required", "returned_to_service"} else None,
         "decided_by": ObjectId(), "decided_at": NOW,
+        "maintenance_completed_by": ObjectId(), "maintenance_completed_at": NOW,
         "cancelled_by": ObjectId(), "cancelled_at": NOW, "cancellation_reason": "No longer required",
         "approved_by": ObjectId(), "approved_at": NOW,
     }
@@ -70,6 +72,7 @@ def test_state_machines_accept_only_frozen_forward_transitions(domain: str, curr
         ("in_progress", "maintenance_required"),
         ("completed", "returned_to_service"),
         ("returned_to_service", "pending"),
+        ("maintenance_completed", "pending"),
         ("maintenance_required", "cancelled"),
         ("cancelled", "pending"),
     ],
@@ -244,6 +247,6 @@ def test_maintenance_document_supports_frozen_work_order_contract() -> None:
 def test_frozen_status_sets_are_complete() -> None:
     assert INSPECTION_STATUSES == {
         "pending", "assigned", "in_progress", "completed", "decision_pending",
-        "maintenance_required", "returned_to_service", "cancelled",
+        "maintenance_required", "maintenance_completed", "returned_to_service", "cancelled",
     }
     assert WORK_ORDER_STATUSES == {"planned", "approved", "in_progress", "completed", "cancelled"}
