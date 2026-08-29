@@ -11,10 +11,9 @@ from app.models.route_model import ROUTE_PLAN_COLLECTION
 from app.models.trip_model import TRIP_SESSION_COLLECTION
 from app.models.user_model import utc_now
 from app.models.vehicle_model import VEHICLE_COLLECTION
-from app.schemas.predictive_schema import EVSensorInput, PredictiveMaintenanceRequest
 from app.services.alert_service import create_alert
 from app.services.ml_model_loader_service import ModelUnavailableError
-from app.services.predictive_maintenance_service import predict_vehicle_maintenance
+from app.services.predictive_maintenance_service import recalculate_vehicle_maintenance
 from app.utils.object_id import serialize_mongo_document, serialize_object_id, validate_object_id
 
 
@@ -38,6 +37,14 @@ def inspection_blocking_reasons(data: dict[str, Any]) -> list[str]:
         reasons.append("Tire damage requires inspection")
     if data.get("brake_condition") in {"reduced_response", "warning_light"} or data.get("brake_condition_change") == "significant":
         reasons.append("Brake warning requires inspection")
+    if data.get("brake_condition") == "critical":
+        reasons.append("Brake condition requires inspection")
+    if data.get("tire_condition") == "critical":
+        reasons.append("Tire condition requires inspection")
+    if data.get("powertrain_condition") == "critical":
+        reasons.append("Powertrain condition requires inspection")
+    if data.get("charging_or_fuel_issue") == "critical":
+        reasons.append("Charging or fuel system requires inspection")
     if data.get("charging_condition") in {"not_charging", "port_damaged"} or data.get("charging_problem") == "failed":
         reasons.append("Charging system requires inspection")
     if data.get("vehicle_damage") == "major":
@@ -52,14 +59,8 @@ def inspection_blocking_reasons(data: dict[str, Any]) -> list[str]:
 
 
 def inspection_model_features(data: dict[str, Any]) -> dict[str, float]:
-    features: dict[str, float] = {}
-    soc = data.get("battery_soc", data.get("ending_battery_soc"))
-    odometer = data.get("odometer", data.get("ending_odometer"))
-    if soc is not None:
-        features["SoC"] = float(soc)
-    if odometer is not None:
-        features["Distance_Traveled"] = float(odometer)
-    return features
+    """Compatibility helper: driver observations are never raw ML features."""
+    return {}
 
 
 async def _assigned_route(current_user: dict[str, Any], statuses: set[str]) -> dict[str, Any]:
@@ -84,13 +85,12 @@ async def _vehicle(route: dict[str, Any]) -> dict[str, Any]:
 async def _run_limited_prediction(
     vehicle: dict[str, Any], data: dict[str, Any], current_user: dict[str, Any]
 ) -> tuple[dict[str, Any] | None, str | None]:
-    request = PredictiveMaintenanceRequest(
-        vehicle_id=serialize_object_id(vehicle["_id"]),
-        input_source="manual",
-        sensor_data=EVSensorInput(**inspection_model_features(data)),
-    )
     try:
-        return await predict_vehicle_maintenance(request, current_user), None
+        return await recalculate_vehicle_maintenance(
+            serialize_object_id(vehicle["_id"]),
+            {"trigger": data.pop("_prediction_trigger")},
+            current_user,
+        ), None
     except ModelUnavailableError as exc:
         return None, exc.message
     except HTTPException as exc:
@@ -133,11 +133,8 @@ async def submit_pre_trip_inspection(data: dict[str, Any], current_user: dict[st
     if existing:
         return serialize_mongo_document(existing) or {}
 
-    reasons = inspection_blocking_reasons(data)
-    prediction, prediction_error = await _run_limited_prediction(vehicle, data, current_user)
-    if prediction and prediction.get("risk_level") == "critical":
-        reasons.append("Driver inspection prediction returned critical maintenance risk")
-
+    observation_reasons = inspection_blocking_reasons(data)
+    reasons = list(observation_reasons)
     now = utc_now()
     document = {
         "route_id": route["_id"],
@@ -146,24 +143,45 @@ async def submit_pre_trip_inspection(data: dict[str, Any], current_user: dict[st
         "vehicle_id": vehicle["_id"],
         "inspection_type": "pre_trip",
         "observations": data,
-        "model_features": inspection_model_features(data),
-        "data_quality": "limited_driver_observed",
+        "data_quality": "structured_driver_observation",
         "blocking_reasons": reasons,
+        "observation_blocking_reasons": observation_reasons,
+        "observation_safe_to_operate": not observation_reasons,
+        "review_hold": False,
         "safe_to_operate": not reasons,
-        "prediction_id": validate_object_id(prediction["prediction_id"]) if prediction else None,
-        "prediction_risk": prediction.get("risk_level") if prediction else None,
-        "prediction_error": prediction_error,
+        "prediction_id": None,
+        "prediction_risk": None,
+        "prediction_error": None,
         "created_at": now,
         "updated_at": now,
     }
     result = await _db()[VEHICLE_TRIP_INSPECTION_COLLECTION].insert_one(document)
     document["_id"] = result.inserted_id
-    if reasons:
+    if float(data["odometer"]) > current_mileage:
+        await _db()[VEHICLE_COLLECTION].update_one(
+            {"_id": vehicle["_id"]}, {"$set": {"current_mileage": float(data["odometer"]), "updated_at": now}}
+        )
+    prediction, prediction_error = await _run_limited_prediction(
+        vehicle, {"_prediction_trigger": "driver_pre_trip"}, current_user
+    )
+    prediction_id = prediction.get("id") if prediction else None
+    prediction_update = {
+        "prediction_id": validate_object_id(prediction_id) if prediction_id else None,
+        "prediction_risk": prediction.get("risk_level") if prediction else None,
+        "prediction_error": prediction_error,
+        "blocking_reasons": observation_reasons,
+        "review_hold": bool(prediction and prediction.get("dispatch_hold")),
+        "safe_to_operate": not observation_reasons,
+        "updated_at": utc_now(),
+    }
+    await _db()[VEHICLE_TRIP_INSPECTION_COLLECTION].update_one({"_id": document["_id"]}, {"$set": prediction_update})
+    document.update(prediction_update)
+    if observation_reasons:
         await _db()[VEHICLE_COLLECTION].update_one(
             {"_id": vehicle["_id"]},
             {"$set": {"status": "under_maintenance", "health_status": "critical", "updated_at": now}},
         )
-        await _create_block_alert(route, vehicle, reasons, "pre_trip")
+        await _create_block_alert(route, vehicle, observation_reasons, "pre_trip")
     return serialize_mongo_document(document) or {}
 
 
@@ -197,7 +215,6 @@ async def submit_post_trip_inspection(data: dict[str, Any], current_user: dict[s
         return serialize_mongo_document(existing) or {}
 
     reasons = inspection_blocking_reasons(data)
-    prediction, prediction_error = await _run_limited_prediction(vehicle, data, current_user)
     now = utc_now()
     document = {
         "route_id": route["_id"],
@@ -207,15 +224,17 @@ async def submit_post_trip_inspection(data: dict[str, Any], current_user: dict[s
         "vehicle_id": vehicle["_id"],
         "inspection_type": "post_trip",
         "observations": data,
-        "model_features": inspection_model_features(data),
-        "data_quality": "limited_driver_observed",
+        "data_quality": "structured_driver_observation",
         "blocking_reasons": reasons,
         "safe_to_operate": not reasons,
         "trip_distance_km": round(float(data["ending_odometer"]) - starting_odometer, 2),
-        "battery_soc_used": round(float(pre["observations"]["battery_soc"]) - float(data["ending_battery_soc"]), 2),
-        "prediction_id": validate_object_id(prediction["prediction_id"]) if prediction else None,
-        "prediction_risk": prediction.get("risk_level") if prediction else None,
-        "prediction_error": prediction_error,
+        "battery_soc_used": (
+            round(float(pre["observations"]["battery_soc"]) - float(data["ending_battery_soc"]), 2)
+            if pre["observations"].get("battery_soc") is not None and data.get("ending_battery_soc") is not None else None
+        ),
+        "prediction_id": None,
+        "prediction_risk": None,
+        "prediction_error": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -226,6 +245,18 @@ async def submit_post_trip_inspection(data: dict[str, Any], current_user: dict[s
         vehicle_update.update({"status": "under_maintenance", "health_status": "critical"})
         await _create_block_alert(route, vehicle, reasons, "post_trip")
     await _db()[VEHICLE_COLLECTION].update_one({"_id": vehicle["_id"]}, {"$set": vehicle_update})
+    prediction, prediction_error = await _run_limited_prediction(
+        vehicle, {"_prediction_trigger": "driver_post_trip"}, current_user
+    )
+    prediction_id = prediction.get("id") if prediction else None
+    prediction_update = {
+        "prediction_id": validate_object_id(prediction_id) if prediction_id else None,
+        "prediction_risk": prediction.get("risk_level") if prediction else None,
+        "prediction_error": prediction_error,
+        "updated_at": utc_now(),
+    }
+    await _db()[VEHICLE_TRIP_INSPECTION_COLLECTION].update_one({"_id": document["_id"]}, {"$set": prediction_update})
+    document.update(prediction_update)
     return serialize_mongo_document(document) or {}
 
 
@@ -235,10 +266,11 @@ async def require_pre_trip_inspection(route: dict[str, Any], current_user: dict[
     })
     if inspection is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete the pre-trip vehicle inspection before starting delivery")
-    if not inspection.get("safe_to_operate", False):
+    observation_safe = inspection.get("observation_safe_to_operate", inspection.get("safe_to_operate", False))
+    if not observation_safe:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Vehicle inspection blocked this trip: {'; '.join(inspection.get('blocking_reasons') or [])}",
+            detail=f"Vehicle inspection blocked this trip: {'; '.join(inspection.get('observation_blocking_reasons') or inspection.get('blocking_reasons') or [])}",
         )
     return inspection
 

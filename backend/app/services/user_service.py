@@ -23,6 +23,15 @@ def get_user_collection():
     return db[USER_COLLECTION]
 
 
+def assert_account_update_allowed(current_user: dict[str, Any], update_data: dict[str, Any]) -> None:
+    protected_fields = {"role", "is_active", "permission_overrides"}
+    if current_user.get("role") == "admin" and protected_fields.intersection(update_data):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrator access and account status are protected",
+        )
+
+
 async def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     try:
         object_id = validate_object_id(user_id)
@@ -112,7 +121,12 @@ async def update_user(user_id: str, data: dict[str, Any]) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID") from exc
 
+    current_user = await get_user_collection().find_one({"_id": object_id})
+    if current_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
     update_data = {key: value for key, value in data.items() if value is not None}
+    assert_account_update_allowed(current_user, update_data)
     if "email" in update_data:
         update_data["email"] = update_data["email"].lower()
     update_data["updated_at"] = utc_now()

@@ -15,7 +15,7 @@ Future<void> main() async {
     authService: authService,
     driverService: DriverApiService(apiClient: apiClient),
   );
-  apiClient.onUnauthorized = controller.handleDeviceRevoked;
+  apiClient.onUnauthorized = controller.refreshExpiredSession;
   await controller.restoreSession();
   runApp(FleetOptDriverApp(controller: controller));
 }

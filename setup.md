@@ -15,7 +15,7 @@ The backend is the central API for both the web app and the mobile app. Do not c
 Install these before running the project:
 
 - Git
-- Python 3.11 or 3.12 recommended
+- Python 3.11 or 3.12 required for the backend
 - Node.js 20 or newer
 - npm
 - Flutter SDK
@@ -36,6 +36,8 @@ npm --version
 flutter --version
 adb version
 ```
+
+Do not use Python 3.14 for the backend. The project depends on `scikit-learn==1.6.1` for ML artifact compatibility, and that version may try to build from source on Python 3.14 instead of installing a Windows wheel.
 
 ### Git Bash
 
@@ -153,6 +155,7 @@ MONGODB_DB_NAME=fleet_optimization
 JWT_SECRET_KEY=replace-with-your-own-strong-secret
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
+OSRM_BASE_URL=https://router.project-osrm.org
 CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:3000
 ```
 
@@ -168,9 +171,18 @@ Run seed scripts after configuring MongoDB Atlas.
 python scripts\seed_users.py
 python scripts\seed_fleet_data.py
 python scripts\seed_ev_csv_fleet_data.py
+python scripts\seed_driver_route_demo.py
 ```
 
 Optional demand import and route data can be tested later through Swagger after login.
+
+To populate an admin-only test environment without creating any driver or additional user, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed_system_test_data.py
+```
+
+This creates unassigned fleet, maintenance, prediction, demand, delivery, and alert data. Create the driver yourself through the web Driver Management page before testing dispatch and the Android workflow.
 
 ### Git Bash
 
@@ -178,6 +190,13 @@ Optional demand import and route data can be tested later through Swagger after 
 python scripts/seed_users.py
 python scripts/seed_fleet_data.py
 python scripts/seed_ev_csv_fleet_data.py
+python scripts/seed_driver_route_demo.py
+```
+
+Admin-only system test data without a generated driver:
+
+```bash
+./.venv/Scripts/python.exe scripts/seed_system_test_data.py
 ```
 
 ### 3.4 Run Backend
@@ -221,7 +240,7 @@ Web frontend path:
 Fleet_Web_App/frontend
 ```
 
-The current React web app is still mostly frontend/mock-service based. Backend API integration is planned for the next phase.
+The React web app is backend-connected and uses Google Maps for live-trip and route-planning views when a Maps browser key is configured.
 
 ### 4.1 Install Dependencies
 
@@ -241,7 +260,33 @@ cd Fleet_Web_App/frontend
 npm install
 ```
 
-### 4.2 Run Web App
+### 4.2 Configure Web Environment
+
+Copy the example file and set backend and Maps values.
+
+### PowerShell
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+### Git Bash
+
+```bash
+cp .env.example .env
+notepad .env
+```
+
+Use this shape:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000/api
+```
+
+Operational maps use OpenStreetMap tiles and backend OSRM route geometry; no browser map key is required.
+
+### 4.3 Run Web App
 
 Use port `5174` to match the current local browser URL. If you prefer Vite default, use port `5173`.
 
@@ -263,7 +308,7 @@ Open:
 http://127.0.0.1:5174
 ```
 
-### 4.3 Web App Checks
+### 4.4 Web App Checks
 
 ### PowerShell
 
@@ -289,7 +334,7 @@ Flutter app path:
 Fleet_Mobile_App/frontend
 ```
 
-The current Flutter Android app is a frontend prototype with local mock services. Backend sync, GPS streaming, push notifications, and real maps are later phases.
+The Flutter Android driver app is backend-connected for login, assigned route, assigned vehicle, alerts, delivery status, issue reporting, and foreground trip tracking. Google Maps is opened externally for stop and full-route navigation.
 
 ### 5.1 Install Flutter Dependencies
 
@@ -350,7 +395,7 @@ Launch an emulator. Replace `<emulator_id>` with your emulator ID.
 ```powershell
 flutter emulators --launch <emulator_id>
 flutter devices
-flutter run
+flutter run -d <emulator_device_id> --dart-define=FLEETOPT_API_BASE_URL=http://10.0.2.2:8000/api
 ```
 
 ### Git Bash
@@ -358,7 +403,7 @@ flutter run
 ```bash
 flutter emulators --launch <emulator_id>
 flutter devices
-flutter run
+flutter run -d <emulator_device_id> --dart-define=FLEETOPT_API_BASE_URL=http://10.0.2.2:8000/api
 ```
 
 If multiple devices are connected:
@@ -418,18 +463,20 @@ flutter run -d <device_id>
 flutter run -d <device_id>
 ```
 
-For future backend-connected mobile testing over USB, reverse the backend port:
+For backend-connected mobile testing over USB, reverse the backend port. If the connected phone is `R58R85Q2HWH`, keep the device id explicit:
 
 ### PowerShell
 
 ```powershell
-adb reverse tcp:8000 tcp:8000
+adb -s R58R85Q2HWH reverse tcp:8000 tcp:8000
+flutter run -d R58R85Q2HWH --dart-define=FLEETOPT_API_BASE_URL=http://127.0.0.1:8000/api
 ```
 
 ### Git Bash
 
 ```bash
-adb reverse tcp:8000 tcp:8000
+adb -s R58R85Q2HWH reverse tcp:8000 tcp:8000
+flutter run -d R58R85Q2HWH --dart-define=FLEETOPT_API_BASE_URL=http://127.0.0.1:8000/api
 ```
 
 Then the Android app can use:
@@ -551,6 +598,49 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\venv\Scripts\Activate.ps1
 ```
 
+### `scikit-learn` fails with Meson/compiler error
+
+If install fails at `scikit-learn==1.6.1` with an error like:
+
+```text
+ERROR: Unknown compiler(s)
+Preparing metadata (pyproject.toml) did not run successfully
+```
+
+check Python version:
+
+```powershell
+python --version
+```
+
+If it shows Python `3.14.x`, install Python 3.11 or 3.12, delete the old virtual environment, and recreate it.
+
+PowerShell:
+
+```powershell
+cd "backend"
+deactivate
+Remove-Item -Recurse -Force venv
+py -3.12 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+Git Bash:
+
+```bash
+cd backend
+deactivate 2>/dev/null || true
+rm -rf venv
+py -3.12 -m venv venv
+source venv/Scripts/activate
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+If `py -3.12` is not found, install Python 3.12 from `https://www.python.org/downloads/windows/` and tick **Add python.exe to PATH** during installation.
+
 ### Git Bash says `cd..: command not found`
 
 Use:
@@ -619,7 +709,8 @@ npm run dev -- --host 127.0.0.1 --port 5175
 ## 12. Current Phase Notes
 
 - Backend has authentication, fleet data APIs, predictive maintenance APIs, demand forecasting APIs, route prediction APIs, delivery APIs, and route optimization APIs.
-- React web app is still not fully connected to backend APIs.
-- Flutter app is still not fully connected to backend APIs.
-- Phase 07 should connect the React web app services to the backend CRUD APIs.
-- Phase 08 should connect the Flutter driver app services to the backend APIs.
+- React web and Flutter driver clients use the central FastAPI backend.
+- Driver accounts must be created by an administrator from **Driver Management**.
+- On first mobile launch, enter the administrator-provided username and temporary password, then configure a six-digit PIN and optional biometrics.
+- A driver can enroll only one phone. Lost, replaced, or reset phones require an administrator device reset and a new temporary password.
+- Mobile tokens, device secrets, and PIN hashes are stored using Android secure storage, not SharedPreferences.

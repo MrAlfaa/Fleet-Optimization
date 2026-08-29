@@ -28,18 +28,18 @@ def parse_forecast_date(value: Any) -> datetime:
 
 def normalize_demand_level(value: float) -> str:
     predicted = safe_float(value)
-    if predicted >= 80:
+    if predicted > 25:
         return "very_high"
-    if predicted >= 50:
+    if predicted > 18:
         return "high"
-    if predicted >= 25:
+    if predicted > 12:
         return "medium"
     return "low"
 
 
-def estimate_required_vehicles(predicted_demand: float, orders_per_vehicle: int = 25) -> int:
+def estimate_required_vehicles(predicted_demand: float, orders_per_vehicle: int = 12) -> int:
     if orders_per_vehicle <= 0:
-        orders_per_vehicle = 25
+        orders_per_vehicle = 12
     return max(1, math.ceil(max(safe_float(predicted_demand), 0) / orders_per_vehicle))
 
 

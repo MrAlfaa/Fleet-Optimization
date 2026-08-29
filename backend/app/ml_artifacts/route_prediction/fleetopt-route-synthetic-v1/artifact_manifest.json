@@ -1,0 +1,9 @@
+{
+  "model_version": "fleetopt-route-synthetic-v1",
+  "source_archive_sha256": "482ee0830e8af58c6824d4e89ba1c8d067e9beba63e2f6e24211aeffaf88804a",
+  "files": {
+    "route_prediction_model_bundle.joblib": "53eb89451121a050c4e2daee1473b6225fcd15c8af5fd178ed98e8421dece9fd",
+    "route_prediction_metrics.json": "051eabba223a15fbdd92563c115aada518a41e4b2252217359360fa5841497c5",
+    "route_prediction_schema.json": "9c7357d2e03ad3c18239361aec7ad0fe5ec315e304245390e0ba101e42e508f1"
+  }
+}

@@ -16,6 +16,7 @@ TRIP_STATUSES = {"active", "completed", "cancelled"}
 TRIP_EVENT_TYPES = {
     "trip_started",
     "trip_ended",
+    "navigation_started",
     "location_update",
     "stop_arrived",
     "stop_delivered",
@@ -32,6 +33,9 @@ def build_trip_session_document(data: dict[str, Any]) -> dict[str, Any]:
         "driver_id": data["driver_id"],
         "vehicle_id": data.get("vehicle_id"),
         "status": data.get("status", "active"),
+        "current_stop_id": data.get("current_stop_id"),
+        "navigation_status": data.get("navigation_status", "idle"),
+        "navigation_started_at": data.get("navigation_started_at"),
         "started_at": data.get("started_at", now),
         "ended_at": data.get("ended_at"),
         "created_at": now,

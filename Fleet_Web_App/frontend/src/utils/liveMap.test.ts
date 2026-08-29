@@ -17,6 +17,9 @@ const trip = (overrides: Partial<LiveTrip> = {}): LiveTrip => ({
   },
   progress: { totalStops: 4, completedStops: 2 },
   latestEvent: null,
+  navigation: {
+    currentStopId: '', currentParcelCode: '', currentCustomerName: '', status: 'idle', startedAt: '',
+  },
   ...overrides,
 })
 

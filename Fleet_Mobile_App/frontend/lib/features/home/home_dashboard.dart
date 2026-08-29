@@ -130,6 +130,30 @@ class HomeDashboard extends StatelessWidget {
                   ),
                 ),
               ),
+              if (controller.readiness.hasPendingEngineeringReview)
+                const Padding(
+                  padding: EdgeInsets.only(top: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.engineering_outlined,
+                        color: AppColors.critical,
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Engineering review pending. Contact the fleet manager before operating this vehicle.',
+                          style: TextStyle(
+                            color: AppColors.critical,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ...controller.readiness.warnings.map(
                 (warning) => Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -204,6 +228,7 @@ class HomeDashboard extends StatelessWidget {
                             context,
                             initialMileage: controller.vehicle.mileage
                                 .toDouble(),
+                            vehicle: controller.vehicle,
                           );
                           if (inspection != null) {
                             await controller.endTripWithInspection(inspection);
@@ -213,6 +238,7 @@ class HomeDashboard extends StatelessWidget {
                         final inspection = await showPreTripInspectionSheet(
                           context,
                           initialMileage: controller.vehicle.mileage.toDouble(),
+                          vehicle: controller.vehicle,
                         );
                         if (inspection != null) {
                           await controller.startTripWithInspection(inspection);

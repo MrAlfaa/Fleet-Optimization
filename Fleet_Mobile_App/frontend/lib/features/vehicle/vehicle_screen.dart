@@ -36,7 +36,7 @@ class VehicleScreen extends StatelessWidget {
                               ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                         Text(
-                          '${vehicle.model} - ${vehicle.type}',
+                          '${vehicle.model} - ${vehicle.category.replaceAll('_', ' ')}',
                           style: const TextStyle(color: AppColors.muted),
                         ),
                       ],
@@ -58,9 +58,9 @@ class VehicleScreen extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   MetricTile(
-                    label: 'Model',
-                    value: vehicle.riskLevel,
-                    icon: Icons.memory_rounded,
+                    label: 'Powertrain',
+                    value: vehicle.fuelType,
+                    icon: Icons.settings_input_component_outlined,
                     color: AppColors.primary,
                   ),
                 ],
@@ -84,25 +84,31 @@ class VehicleScreen extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         const _InspectionTile(
-          label: 'Brake response',
-          state: 'Monitor',
-          color: AppColors.warning,
+          label: 'Brake condition',
+          state: 'Required',
+          color: AppColors.primary,
         ),
         const _InspectionTile(
-          label: 'Tires and pressure',
-          state: 'Clear',
-          color: AppColors.success,
+          label: 'Tires and visible damage',
+          state: 'Required',
+          color: AppColors.primary,
         ),
-        const _InspectionTile(
-          label: 'Battery and lights',
-          state: 'Clear',
-          color: AppColors.success,
+        _InspectionTile(
+          label: vehicle.powertrainConditionLabel,
+          state: 'Required',
+          color: AppColors.primary,
         ),
-        const _InspectionTile(
-          label: 'Engine temperature',
-          state: 'Clear',
-          color: AppColors.success,
+        _InspectionTile(
+          label: vehicle.energyIssueLabel,
+          state: 'Required',
+          color: AppColors.primary,
         ),
+        if (vehicle.supportsBatteryContext)
+          const _InspectionTile(
+            label: 'Battery charge (operational context)',
+            state: 'Optional',
+            color: AppColors.muted,
+          ),
       ],
     );
   }

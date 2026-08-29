@@ -1,4 +1,5 @@
 import json
+import hashlib
 import warnings
 from functools import lru_cache
 from pathlib import Path
@@ -7,11 +8,13 @@ from typing import Any
 import joblib
 
 
-ROUTE_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "ml_artifacts" / "route_prediction"
+ROUTE_MODEL_VERSION = "fleetopt-route-synthetic-v1"
+ROUTE_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "ml_artifacts" / "route_prediction" / ROUTE_MODEL_VERSION
 ROUTE_MODEL_FILE = "route_prediction_model_bundle.joblib"
 ROUTE_METRICS_FILE = "route_prediction_metrics.json"
 ROUTE_SCHEMA_FILE = "route_prediction_schema.json"
 ROUTE_SAMPLE_INPUT_FILE = "route_prediction_sample_input.json"
+ROUTE_MANIFEST_FILE = "artifact_manifest.json"
 
 
 class RouteArtifactUnavailableError(Exception):
@@ -36,6 +39,29 @@ def _load_json(path: Path) -> dict[str, Any] | None:
         return None
     with path.open("r", encoding="utf-8") as file:
         return json.load(file)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_artifact_files() -> dict[str, Any]:
+    manifest = _load_json(ROUTE_ARTIFACT_DIR / ROUTE_MANIFEST_FILE) or {}
+    expected_files = manifest.get("files") or {}
+    mismatches = []
+    for filename, expected_hash in expected_files.items():
+        path = ROUTE_ARTIFACT_DIR / filename
+        if not path.exists() or _sha256(path).lower() != str(expected_hash).lower():
+            mismatches.append(filename)
+    return {
+        "manifest": manifest,
+        "verified": bool(expected_files) and not mismatches,
+        "hash_mismatches": mismatches,
+    }
 
 
 def _install_sklearn_pickle_compatibility() -> None:
@@ -93,6 +119,12 @@ def load_route_model_bundle() -> dict[str, Any]:
             "Route prediction model artifact is unavailable",
             {"missing_files": [ROUTE_MODEL_FILE], "artifact_path": str(ROUTE_ARTIFACT_DIR)},
         )
+    verification = _verify_artifact_files()
+    if not verification["verified"]:
+        raise RouteArtifactUnavailableError(
+            "Route prediction artifact integrity verification failed",
+            {"hash_mismatches": verification["hash_mismatches"], "artifact_path": str(ROUTE_ARTIFACT_DIR)},
+        )
     try:
         _install_sklearn_pickle_compatibility()
         with warnings.catch_warnings():
@@ -137,6 +169,9 @@ def get_route_artifact_status(load_model: bool = False) -> dict[str, Any]:
 
     schema = load_route_schema() or {}
     metrics = load_route_metrics()
+    verification = _verify_artifact_files()
+    quality_gate = (metrics or {}).get("quality_gate") or {}
+    quality_gate_passed = quality_gate.get("bundle_pass") is True
     loaded = False
     model_keys: list[str] = []
     load_error = None
@@ -153,7 +188,11 @@ def get_route_artifact_status(load_model: bool = False) -> dict[str, Any]:
         "artifact_path": paths["artifact_dir"],
         "model_file_exists": ROUTE_MODEL_FILE not in missing_files,
         "loaded": loaded,
-        "available": not missing_files and load_error is None,
+        "available": not missing_files and load_error is None and verification["verified"] and quality_gate_passed,
+        "model_version": ROUTE_MODEL_VERSION,
+        "integrity_verified": verification["verified"],
+        "hash_mismatches": verification["hash_mismatches"],
+        "quality_gate_passed": quality_gate_passed,
         "model_keys": model_keys,
         "feature_count": len(feature_columns),
         "feature_columns": feature_columns,

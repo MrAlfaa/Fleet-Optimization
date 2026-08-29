@@ -13,6 +13,13 @@ class MockDriverService implements DriverDataService {
     stops: [
       RouteStop(
         id: 'stop-1',
+        parcelCode: 'QA-PARCEL-001',
+        customerPhone: '0771234567',
+        parcelWeightKg: 12.5,
+        lengthCm: 60,
+        widthCm: 40,
+        heightCm: 35,
+        handling: ['Fragile', 'Do not tilt'],
         sequence: 1,
         customer: 'District Center Alpha',
         address: '220 Lake Drive, Colombo Central',
@@ -105,13 +112,20 @@ class MockDriverService implements DriverDataService {
       riskLevel: 'medium',
       riskSummary:
           'Brake pads show elevated wear. Avoid extended high-load dispatch.',
-      modelStatus: 'Placeholder baseline',
+      modelStatus: 'Maintenance monitoring active',
+      category: 'truck',
+      fuelType: 'diesel',
     );
   }
 
   @override
   Future<DriverRoute?> getTodayRoute() async {
     return _route;
+  }
+
+  @override
+  Future<RouteGeometry> getRouteGeometry(String routeId) async {
+    return RouteGeometry.fallbackFor(_route);
   }
 
   @override
@@ -151,6 +165,7 @@ class MockDriverService implements DriverDataService {
       routeDistanceKm: 86.4,
       warnings: ['Maintenance monitoring required during this route'],
       blockingReasons: [],
+      reviewStatus: 'not_required',
     );
   }
 
@@ -203,6 +218,20 @@ class MockDriverService implements DriverDataService {
   Future<void> sendLocation(DriverLocationUpdate location) async {}
 
   @override
+  Future<DriverNavigationState> startStopNavigation(String orderId) async {
+    final stop = _route.stops.firstWhere((item) => item.id == orderId);
+    final navigation = DriverNavigationState(
+      currentStopId: stop.id,
+      currentParcelCode: stop.parcelCode,
+      currentCustomerName: stop.customer,
+      status: 'navigating',
+      startedAt: 'Now',
+    );
+    _route = _route.copyWith(navigation: navigation);
+    return navigation;
+  }
+
+  @override
   Future<void> updateDeliveryStatus(
     String orderId,
     DeliveryStatus status,
@@ -212,7 +241,16 @@ class MockDriverService implements DriverDataService {
           (stop) => stop.id == orderId ? stop.copyWith(status: status) : stop,
         )
         .toList(growable: false);
-    _route = _route.copyWith(stops: stops);
+    var navigation = _route.navigation;
+    if (navigation.currentStopId == orderId) {
+      navigation = status == DeliveryStatus.arrived
+          ? navigation.copyWith(status: 'arrived')
+          : status == DeliveryStatus.delivered ||
+                status == DeliveryStatus.failed
+          ? const DriverNavigationState.idle()
+          : navigation;
+    }
+    _route = _route.copyWith(stops: stops, navigation: navigation);
   }
 
   @override

@@ -29,6 +29,7 @@ async def create_alert(data: dict[str, Any]) -> dict[str, Any]:
     _convert_optional_id(prepared, "linked_vehicle_id", "vehicle ID")
     _convert_optional_id(prepared, "linked_part_id", "part ID")
     _convert_optional_id(prepared, "linked_maintenance_record_id", "maintenance record ID")
+    _convert_optional_id(prepared, "linked_prediction_review_id", "prediction review ID")
     _convert_optional_id(prepared, "resolved_by", "resolver user ID")
 
     document = build_alert_document(prepared)

@@ -1,0 +1,12 @@
+{
+  "days": {
+    "lower_multiplier": 0.333085584057343,
+    "upper_multiplier": 1.68209346221142,
+    "coverage_target": 0.8
+  },
+  "km": {
+    "lower_multiplier": 0.33138434746676493,
+    "upper_multiplier": 1.69180424340282,
+    "coverage_target": 0.8
+  }
+}

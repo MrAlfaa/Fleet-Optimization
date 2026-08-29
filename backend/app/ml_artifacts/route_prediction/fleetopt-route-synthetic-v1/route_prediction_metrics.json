@@ -1,0 +1,103 @@
+{
+  "dataset": {
+    "rows": 700000,
+    "routes": 140000,
+    "orders": 270908,
+    "vehicles": 10000,
+    "start": "2022-01-01T05:01:35+00:00",
+    "end": "2026-12-31T22:58:49+00:00",
+    "delay_rate": 0.6459,
+    "eta_mean_minutes": 44.51
+  },
+  "split": {
+    "train": {
+      "rows": 490000,
+      "routes": 98000,
+      "route_anchor_start": "2022-01-01T05:01:35+00:00",
+      "route_anchor_end": "2023-01-24T17:50:10+00:00",
+      "segment_start": "2022-01-01T05:01:35+00:00",
+      "segment_end": "2026-12-31T22:56:36+00:00",
+      "delay_rate": 0.6459
+    },
+    "validation": {
+      "rows": 105000,
+      "routes": 21000,
+      "route_anchor_start": "2023-01-24T17:54:15+00:00",
+      "route_anchor_end": "2023-07-30T18:12:14+00:00",
+      "segment_start": "2023-01-24T17:54:15+00:00",
+      "segment_end": "2026-12-31T22:49:30+00:00",
+      "delay_rate": 0.6468
+    },
+    "test": {
+      "rows": 105000,
+      "routes": 21000,
+      "route_anchor_start": "2023-07-30T18:26:37+00:00",
+      "route_anchor_end": "2026-07-11T19:26:55+00:00",
+      "segment_start": "2023-07-30T18:26:37+00:00",
+      "segment_end": "2026-12-31T22:58:49+00:00",
+      "delay_rate": 0.6448
+    }
+  },
+  "eta_candidate": {
+    "mae_minutes": 2.9935,
+    "rmse_minutes": 3.9833,
+    "r2": 0.9833,
+    "mae_improvement_fraction": 0.776
+  },
+  "eta_planned_baseline": {
+    "mae_minutes": 13.3642,
+    "rmse_minutes": 18.6668,
+    "r2": 0.6322
+  },
+  "delay_candidate": {
+    "prevalence": 0.6448,
+    "threshold": 0.455,
+    "balanced_accuracy": 0.8667,
+    "precision": 0.9178,
+    "recall": 0.8759,
+    "f1": 0.8964,
+    "roc_auc": 0.9468,
+    "average_precision": 0.9742
+  },
+  "subgroups": {
+    "eta_mae_by_traffic": {
+      "High": 2.8816,
+      "Low": 2.9143,
+      "Medium": 3.0679,
+      "Severe": 3.1046
+    },
+    "eta_mae_by_weather": {
+      "Cloudy": 2.9468,
+      "Fog": 2.8563,
+      "Stormy": 3.4855,
+      "Sunny": 2.9281,
+      "Windy": 2.9371
+    },
+    "eta_mae_by_road_class": {
+      "motorway": 2.7701,
+      "primary": 2.8717,
+      "residential": 3.2944,
+      "secondary": 2.9558,
+      "tertiary": 3.0591
+    },
+    "eta_mae_by_period": {
+      "Off-peak": 2.9807,
+      "Peak": 3.0135
+    }
+  },
+  "quality_gate": {
+    "eta_model_pass": true,
+    "delay_model_pass": true,
+    "bundle_pass": true
+  },
+  "metadata": {
+    "model_version": "fleetopt-route-synthetic-v1",
+    "training_data_version": "fleetopt-sim-v1",
+    "feature_schema_version": "2.0",
+    "validation_scope": "synthetic_research_mvp",
+    "split_strategy": "chronological_route_group",
+    "trained_at": "2026-08-22T16:44:37.825082+00:00",
+    "python_version": "3.13.15",
+    "scikit_learn_version": "1.6.1"
+  }
+}

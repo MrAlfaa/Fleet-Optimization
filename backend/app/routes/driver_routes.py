@@ -17,6 +17,7 @@ from app.services.driver_service import (
     get_driver_alerts,
     get_delivery_attempts_for_driver,
     mark_driver_delivery_incomplete,
+    start_driver_stop_navigation,
     update_driver_delivery_status,
 )
 from app.services.fleet_intelligence_service import get_driver_trip_readiness
@@ -93,6 +94,12 @@ async def update_delivery_status(
 ) -> dict:
     data = await update_driver_delivery_status(order_id, payload.status, current_user)
     return success_response("Delivery status updated successfully", data=data)
+
+
+@router.post("/deliveries/{order_id}/navigation/start")
+async def start_stop_navigation(order_id: str, current_user: dict = Depends(require_driver)) -> dict:
+    data = await start_driver_stop_navigation(order_id, current_user)
+    return success_response("FleetOpt navigation started successfully", data=data)
 
 
 @router.post("/deliveries/{order_id}/incomplete")

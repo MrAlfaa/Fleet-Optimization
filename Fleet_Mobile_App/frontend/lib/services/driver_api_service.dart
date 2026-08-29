@@ -34,6 +34,14 @@ class DriverApiService implements DriverDataService {
   }
 
   @override
+  Future<RouteGeometry> getRouteGeometry(String routeId) async {
+    final data = await _apiClient.get<Map<String, dynamic>>(
+      '/routes/$routeId/geometry',
+    );
+    return RouteGeometry.fromJson(data);
+  }
+
+  @override
   Future<List<DriverAlert>> getAlerts() async {
     final data = await _apiClient.get<Object?>('/driver/alerts');
     if (data is! List) {
@@ -144,6 +152,15 @@ class DriverApiService implements DriverDataService {
       '/driver/location',
       location.toJson(),
     );
+  }
+
+  @override
+  Future<DriverNavigationState> startStopNavigation(String orderId) async {
+    final data = await _apiClient.post<Map<String, dynamic>>(
+      '/driver/deliveries/$orderId/navigation/start',
+      {},
+    );
+    return DriverNavigationState.fromJson(data);
   }
 
   @override

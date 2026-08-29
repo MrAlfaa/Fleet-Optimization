@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -13,6 +13,8 @@ from app.utils.geo_utils import validate_coordinates
 from app.utils.object_id import serialize_mongo_list, validate_object_id
 from app.utils.pagination import build_pagination_response, calculate_skip, normalize_pagination
 from app.utils.sri_lanka_zones import enrich_zone_record, prepare_delivery_zone
+from app.utils.branch_operations import apply_branch_origin, build_delivery_schedule, delivery_batch_key
+from app.services.load_optimization_service import invalidate_load_plan_for_order, planning_change_requires_revision
 
 
 def get_delivery_collection():
@@ -64,9 +66,32 @@ def _prepare_zone(data: dict[str, Any], existing: dict[str, Any] | None = None) 
     return prepared
 
 
+def _prepare_branch_and_schedule(data: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    prepared = apply_branch_origin(data)
+    existing_key = delivery_batch_key(existing or {})
+    requested_date = prepared.get("delivery_date")
+    requested_period = prepared.get("delivery_period")
+
+    if requested_date is not None or requested_period is not None:
+        if requested_date is None and existing_key:
+            requested_date = existing_key[0]
+        if requested_period is None and existing_key:
+            requested_period = existing_key[1]
+        if requested_date is None or requested_period is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Delivery date and period must be provided together")
+        date_value = requested_date if isinstance(requested_date, date) else datetime.fromisoformat(str(requested_date)[:10]).date()
+        prepared.update(build_delivery_schedule(date_value, str(requested_period)))
+    elif prepared.get("scheduled_date") is not None:
+        inferred = delivery_batch_key({"scheduled_date": prepared["scheduled_date"]})
+        if inferred:
+            prepared.update(build_delivery_schedule(datetime.fromisoformat(inferred[0]).date(), inferred[1]))
+    return prepared
+
+
 async def create_delivery_order(data: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
-    _validate_delivery_coordinates(data)
-    prepared = _prepare_zone(data)
+    prepared = _prepare_branch_and_schedule(data)
+    _validate_delivery_coordinates(prepared)
+    prepared = _prepare_zone(prepared)
     prepared = await _validate_vehicle_driver_ids(prepared)
     document = build_delivery_order_document(prepared)
     try:
@@ -98,6 +123,9 @@ async def list_delivery_orders(
     zone_id: str | None = None,
     priority: str | None = None,
     assigned_vehicle_id: str | None = None,
+    delivery_period: str | None = None,
+    load_planning_status: str | None = None,
+    consolidation_id: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
     page: int = 1,
@@ -113,6 +141,12 @@ async def list_delivery_orders(
         query["priority"] = priority
     if assigned_vehicle_id:
         query["assigned_vehicle_id"] = validate_object_id(assigned_vehicle_id)
+    if delivery_period:
+        query["delivery_period"] = delivery_period
+    if load_planning_status:
+        query["load_planning_status"] = load_planning_status
+    if consolidation_id:
+        query["active_consolidation_id"] = consolidation_id
     if start_date or end_date:
         from app.services.operational_demand_service import day_bounds
         date_query: dict[str, Any] = {}
@@ -157,9 +191,16 @@ async def update_delivery_order(order_id: str, data: dict[str, Any]) -> dict[str
     update_data = {key: value for key, value in data.items() if value is not None}
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No update fields provided")
+    update_data = _prepare_branch_and_schedule(update_data, existing)
     _validate_delivery_coordinates(update_data)
     update_data = _prepare_zone(update_data, existing)
     update_data = await _validate_vehicle_driver_ids(update_data)
+    if planning_change_requires_revision(existing, update_data):
+        await invalidate_load_plan_for_order(existing, "Parcel planning inputs changed")
+        update_data.update({
+            "load_planning_status": "unplanned", "active_load_plan_id": None,
+            "active_load_id": None, "active_consolidation_id": None, "load_reservation_job_id": None,
+        })
     update_data["updated_at"] = utc_now()
     try:
         result = await get_delivery_collection().update_one({"_id": object_id}, {"$set": update_data})
@@ -196,6 +237,7 @@ async def cancel_delivery_order(order_id: str, reason: str, current_user: dict[s
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Delivery order not found")
     if existing.get("delivery_status") in {"delivered", "in_route"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Delivered or in-route orders cannot be cancelled")
+    await invalidate_load_plan_for_order(existing, "Parcel was cancelled")
     db = get_database()
     if db is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="MongoDB is not configured or connected")
@@ -213,6 +255,11 @@ async def cancel_delivery_order(order_id: str, reason: str, current_user: dict[s
         "cancelled_by": validate_object_id(current_user["id"]),
         "assigned_vehicle_id": None,
         "assigned_driver_id": None,
+        "load_planning_status": "unplanned",
+        "active_consolidation_id": None,
+        "active_load_plan_id": None,
+        "active_load_id": None,
+        "load_reservation_job_id": None,
         "updated_at": now,
     }})
     updated = await get_delivery_collection().find_one({"_id": object_id})

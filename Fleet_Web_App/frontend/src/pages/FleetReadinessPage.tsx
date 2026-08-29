@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Card, DataTable, EmptyState, ErrorState, LoadingState, MetricCard, OperationalInfo, PageHeader, RiskBadge, StatusBadge } from '../components/UI'
 import { DEMAND_DATA_CONTEXT_NOTE, vehicleCategoryLabel } from '../data/sriLankaZones'
 import { useAsyncData } from '../hooks/useAsyncData'
+import { FleetCapacityVisualization } from '../features/readiness/FleetCapacityVisualization'
 import { intelligenceService } from '../services/intelligenceService'
 
 export function FleetReadinessPage() {
@@ -15,13 +16,17 @@ export function FleetReadinessPage() {
   if (loading) return <LoadingState label="Calculating fleet readiness..." />
   if (error || !data) return <ErrorState message={error ?? 'Unable to calculate fleet readiness'} onRetry={reload} />
 
+  const activeStart = dateOnly(data.activeForecastRun?.forecast_start_date)
+  const activeEnd = dateOnly(data.activeForecastRun?.forecast_end_date)
+  const displayedForecastDate = forecastDate || data.forecastDate || activeStart
+
   return (
     <div>
       <PageHeader
         action={(
           <div className="flex items-center gap-2"><OperationalInfo title="Demand forecast context">{data.dataContextNote || DEMAND_DATA_CONTEXT_NOTE}</OperationalInfo><label className="flex items-center gap-2 rounded-lg border border-fleet-line bg-white px-3 py-2 text-sm font-semibold shadow-sm">
             <CalendarDays className="h-4 w-4 text-fleet-muted" />
-            <input aria-label="Forecast date" className="outline-none" onChange={(event) => setForecastDate(event.target.value)} type="date" value={forecastDate} />
+            <input aria-label="Forecast date" className="outline-none" max={activeEnd || undefined} min={activeStart || undefined} onChange={(event) => setForecastDate(event.target.value)} type="date" value={displayedForecastDate} />
           </label></div>
         )}
         description="Combine forecast demand, vehicle health, predictive risk, and route activity before dispatch."
@@ -34,6 +39,8 @@ export function FleetReadinessPage() {
         <MetricCard icon={AlertTriangle} label="Capacity Gap" tone={data.capacityGap > 0 ? 'amber' : 'green'} trend="Required minus eligible" value={String(data.capacityGap)} />
         <MetricCard icon={ShieldX} label="Blocked Vehicles" tone={data.blockedVehicles > 0 ? 'red' : 'green'} trend={`${data.maintenanceVehicles} in maintenance`} value={String(data.blockedVehicles)} />
       </div>
+
+      <FleetCapacityVisualization className="mt-5" readiness={data} />
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
         <Card title="Vehicle Dispatch Readiness">
@@ -56,10 +63,10 @@ export function FleetReadinessPage() {
         <div className="space-y-5">
           <Card title="High-demand Sri Lankan Zones">
             <div className="space-y-3">
-              {data.highDemandZones.length === 0 ? <p className="text-sm text-fleet-muted">No high-demand zone for this forecast date.</p> : data.highDemandZones.map((zone, index) => (
-                <div className="rounded-lg bg-slate-50 p-3" key={String(zone.operational_zone_id ?? index)}>
-                  <div className="font-bold">{String(zone.zone_display_name ?? zone.operational_zone_id ?? 'Zone')}</div>
-                  <div className="mt-1 text-xs text-fleet-muted">{String(zone.demand_level ?? 'unknown').replaceAll('_', ' ')} demand · {Number(zone.estimated_required_vehicles ?? 0)} vehicle(s)</div>
+              {data.highDemandZones.length === 0 ? <p className="text-sm text-fleet-muted">No high-demand zone for this forecast date.</p> : data.highDemandZones.map((zone) => (
+                <div className="rounded-lg bg-slate-50 p-3" key={zone.operationalZoneId}>
+                  <div className="font-bold">{zone.zoneDisplayName}</div>
+                  <div className="mt-1 text-xs text-fleet-muted">{zone.demandLevel.replaceAll('_', ' ')} demand · {zone.estimatedRequiredVehicles} vehicle(s) · {Math.round(zone.predictedDemand)} orders</div>
                 </div>
               ))}
             </div>
@@ -78,4 +85,9 @@ export function FleetReadinessPage() {
       </div>
     </div>
   )
+}
+
+function dateOnly(value: string | null | undefined) {
+  if (!value) return ''
+  return value.includes('T') ? value.split('T', 1)[0] : value
 }

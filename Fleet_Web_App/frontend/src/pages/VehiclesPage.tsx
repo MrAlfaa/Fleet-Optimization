@@ -9,8 +9,12 @@ import { VEHICLE_CATEGORIES } from '../data/sriLankaZones'
 import { VehicleForm } from '../components/VehicleForm'
 import { VehicleIdentity } from '../components/VehicleIdentity'
 import type { Vehicle } from '../types'
+import { authService } from '../services/authService'
+import { canAccess } from '../utils/permissions'
 
 export function VehiclesPage() {
+  const currentUser = authService.getSession()
+  const canCreate = canAccess(currentUser, 'vehicles.create')
   const [risk, setRisk] = useState('all')
   const [category, setCategory] = useState('all')
   const [status, setStatus] = useState('all')
@@ -34,7 +38,7 @@ export function VehiclesPage() {
   return (
     <div>
       <PageHeader
-        action={<PrimaryButton onClick={() => setShowCreate(true)}><Plus className="h-4 w-4" /> Add Vehicle</PrimaryButton>}
+        action={canCreate ? <PrimaryButton onClick={() => setShowCreate(true)}><Plus className="h-4 w-4" /> Add Vehicle</PrimaryButton> : undefined}
         description="Manage and monitor your fleet inventory in real-time."
         title="Vehicle Registry"
       />
@@ -94,6 +98,7 @@ export function VehiclesPage() {
 }
 
 function VehicleActions({ vehicle, busy, onEdit, onLifecycle, onActivate }: { vehicle: Vehicle; busy: boolean; onEdit: () => void; onLifecycle: () => void; onActivate: () => void }) {
+  const canUpdate = canAccess(authService.getSession(), 'vehicles.update')
   const actionClass = 'grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition duration-200 hover:-translate-y-0.5 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-blue-300'
-  return <div className="flex items-center gap-1"><Link aria-label={`View ${vehicle.registrationNumber}`} className={`${actionClass} hover:bg-blue-50 hover:text-blue-700`} title="View vehicle details" to={`/vehicles/${vehicle.id}`}><ChevronRight className="h-4 w-4" /></Link><button aria-label={`Edit ${vehicle.registrationNumber}`} className={`${actionClass} hover:bg-blue-50 hover:text-blue-700`} onClick={onEdit} title="Edit vehicle" type="button"><Pencil className="h-4 w-4" /></button>{vehicle.status === 'Offline' && <button aria-label={`Activate ${vehicle.registrationNumber}`} className={`${actionClass} text-emerald-600 hover:bg-emerald-50 disabled:opacity-50`} disabled={busy} onClick={onActivate} title="Activate inspected vehicle" type="button"><Power className="h-4 w-4" /></button>}<button aria-label={`${vehicle.status === 'Retired' ? 'Restore' : 'Retire'} ${vehicle.registrationNumber}`} className={`${actionClass} hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50`} disabled={busy} onClick={onLifecycle} title={vehicle.status === 'Retired' ? 'Restore vehicle' : 'Retire vehicle'} type="button">{vehicle.status === 'Retired' ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}</button></div>
+  return <div className="flex items-center gap-1"><Link aria-label={`View ${vehicle.registrationNumber}`} className={`${actionClass} hover:bg-blue-50 hover:text-blue-700`} title="View vehicle details" to={`/vehicles/${vehicle.id}`}><ChevronRight className="h-4 w-4" /></Link>{canUpdate && <><button aria-label={`Edit ${vehicle.registrationNumber}`} className={`${actionClass} hover:bg-blue-50 hover:text-blue-700`} onClick={onEdit} title="Edit vehicle" type="button"><Pencil className="h-4 w-4" /></button>{vehicle.status === 'Offline' && <button aria-label={`Activate ${vehicle.registrationNumber}`} className={`${actionClass} text-emerald-600 hover:bg-emerald-50 disabled:opacity-50`} disabled={busy} onClick={onActivate} title="Activate inspected vehicle" type="button"><Power className="h-4 w-4" /></button>}<button aria-label={`${vehicle.status === 'Retired' ? 'Restore' : 'Retire'} ${vehicle.registrationNumber}`} className={`${actionClass} hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50`} disabled={busy} onClick={onLifecycle} title={vehicle.status === 'Retired' ? 'Restore vehicle' : 'Retire vehicle'} type="button">{vehicle.status === 'Retired' ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}</button></>}</div>
 }

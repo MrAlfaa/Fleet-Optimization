@@ -25,6 +25,7 @@ from app.services.delivery_service import (
 from app.services.route_prediction_service import ROUTE_ALLOWED_ROLES
 from app.utils.response import success_response
 from app.utils.validators import validate_choice
+from app.utils.branch_operations import DELIVERY_PERIODS
 
 
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
@@ -36,6 +37,9 @@ async def get_deliveries(
     zone_id: str | None = Query(default=None),
     priority: str | None = Query(default=None),
     assigned_vehicle_id: str | None = Query(default=None),
+    delivery_period: str | None = Query(default=None),
+    load_planning_status: str | None = Query(default=None),
+    consolidation_id: str | None = Query(default=None),
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     page: int = Query(default=1, ge=1),
@@ -46,11 +50,16 @@ async def get_deliveries(
         validate_choice(status, DELIVERY_STATUSES, "Delivery status")
     if priority:
         validate_choice(priority, DELIVERY_PRIORITIES, "Delivery priority")
+    if delivery_period:
+        validate_choice(delivery_period, DELIVERY_PERIODS, "Delivery period")
     data = await list_delivery_orders(
         status_filter=status,
         zone_id=zone_id,
         priority=priority,
         assigned_vehicle_id=assigned_vehicle_id,
+        delivery_period=delivery_period,
+        load_planning_status=load_planning_status,
+        consolidation_id=consolidation_id,
         start_date=start_date,
         end_date=end_date,
         page=page,

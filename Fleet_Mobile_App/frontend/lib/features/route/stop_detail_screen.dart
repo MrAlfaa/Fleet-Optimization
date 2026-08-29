@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../app/fleetopt_driver_app.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/driver_models.dart';
-import '../../services/map_navigation_service.dart';
 import '../../widgets/fleet_widgets.dart';
+import 'fleet_navigation_screen.dart';
 
 class StopDetailScreen extends StatelessWidget {
   const StopDetailScreen({super.key, required this.stopId});
@@ -27,6 +27,8 @@ class StopDetailScreen extends StatelessWidget {
       );
     }
     final stop = matches.first;
+    final canUpdate =
+        controller.tripActive && controller.route.nextStop?.id == stop.id;
     return Scaffold(
       appBar: AppBar(title: const Text('Stop detail')),
       body: ListView(
@@ -65,6 +67,38 @@ class StopDetailScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
+                  'Parcel ${stop.parcelCode.isEmpty ? stop.id : stop.parcelCode}',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  [
+                        if (stop.parcelWeightKg != null)
+                          '${stop.parcelWeightKg!.toStringAsFixed(1)} kg',
+                        if (stop.dimensionsLabel != 'Not recorded')
+                          stop.dimensionsLabel,
+                        if (stop.handling.isNotEmpty) stop.handling.join(', '),
+                      ].isEmpty
+                      ? 'Parcel handling details not recorded'
+                      : [
+                          if (stop.parcelWeightKg != null)
+                            '${stop.parcelWeightKg!.toStringAsFixed(1)} kg',
+                          if (stop.dimensionsLabel != 'Not recorded')
+                            stop.dimensionsLabel,
+                          if (stop.handling.isNotEmpty)
+                            stop.handling.join(', '),
+                        ].join(' - '),
+                  style: const TextStyle(color: AppColors.muted),
+                ),
+                if (stop.customerPhone.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Customer contact: ${stop.customerPhone}',
+                    style: const TextStyle(color: AppColors.muted),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Text(
                   'ETA ${stop.eta} - ${stop.zone}',
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
@@ -73,21 +107,37 @@ class StopDetailScreen extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           FleetButton(
-            label: 'Launch Google Maps',
+            label: 'Open FleetOpt navigation',
             icon: Icons.navigation_outlined,
             onPressed: () async {
-              final opened = await GoogleMapsNavigation.openStop(stop);
-              if (!context.mounted || opened) {
-                return;
+              if (canUpdate && !controller.route.navigation.isNavigating) {
+                final started = await controller.startNavigationToStop(stop.id);
+                if (!started || !context.mounted) return;
               }
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Unable to open Google Maps navigation.'),
-                ),
-              );
+              if (context.mounted) {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const FleetNavigationScreen(),
+                  ),
+                );
+              }
             },
           ),
           const SizedBox(height: 14),
+          if (!canUpdate) ...[
+            FleetCard(
+              child: Text(
+                controller.tripActive
+                    ? 'Complete the current next stop before updating this delivery.'
+                    : 'Start the assigned trip before updating delivery status.',
+                style: const TextStyle(
+                  color: AppColors.warning,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
           Text(
             'Update delivery status',
             style: Theme.of(
@@ -107,34 +157,36 @@ class StopDetailScreen extends StatelessWidget {
                   return FleetButton(
                     label: deliveryStatusLabel(status),
                     filled: status == stop.status,
-                    onPressed: () async {
-                      await controller.updateStopStatus(stop.id, status);
-                      if (!context.mounted) {
-                        return;
-                      }
-                      if (status == DeliveryStatus.delivered) {
-                        final next = controller.route.nextStop;
-                        Navigator.of(context).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              next == null
-                                  ? 'Delivery completed. All assigned stops are processed.'
-                                  : 'Delivery completed. Next stop: ${next.customer}.',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            controller.error ??
-                                '${stop.customer} marked ${deliveryStatusLabel(status).toLowerCase()}',
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: canUpdate
+                        ? () async {
+                            await controller.updateStopStatus(stop.id, status);
+                            if (!context.mounted) {
+                              return;
+                            }
+                            if (status == DeliveryStatus.delivered) {
+                              final next = controller.route.nextStop;
+                              Navigator.of(context).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    next == null
+                                        ? 'Delivery completed. All assigned stops are processed.'
+                                        : 'Delivery completed. Next stop: ${next.customer}.',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  controller.error ??
+                                      '${stop.customer} marked ${deliveryStatusLabel(status).toLowerCase()}',
+                                ),
+                              ),
+                            );
+                          }
+                        : null,
                   );
                 }).toList(),
           ),
@@ -144,8 +196,9 @@ class StopDetailScreen extends StatelessWidget {
             icon: Icons.event_repeat_rounded,
             danger: true,
             filled: false,
-            onPressed: () =>
-                _showIncompleteDialog(context, controller, stop.id),
+            onPressed: canUpdate
+                ? () => _showIncompleteDialog(context, controller, stop.id)
+                : null,
           ),
         ],
       ),

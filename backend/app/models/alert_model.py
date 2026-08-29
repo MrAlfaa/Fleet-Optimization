@@ -24,6 +24,7 @@ def build_alert_document(data: dict[str, Any]) -> dict[str, Any]:
         "linked_vehicle_id": data.get("linked_vehicle_id"),
         "linked_part_id": data.get("linked_part_id"),
         "linked_maintenance_record_id": data.get("linked_maintenance_record_id"),
+        "linked_prediction_review_id": data.get("linked_prediction_review_id"),
         "status": data.get("status", "active"),
         "created_by_system": data.get("created_by_system", False),
         "created_at": data.get("created_at", utc_now()),
@@ -47,6 +48,7 @@ async def ensure_alert_indexes() -> None:
         await collection.create_index([("severity", ASCENDING)], name="alert_severity")
         await collection.create_index([("status", ASCENDING)], name="alert_status")
         await collection.create_index([("linked_vehicle_id", ASCENDING)], name="alert_vehicle_id")
+        await collection.create_index([("linked_prediction_review_id", ASCENDING)], name="alert_prediction_review_id")
         await collection.create_index([("created_at", DESCENDING)], name="alert_created_at")
     except PyMongoError:
         return

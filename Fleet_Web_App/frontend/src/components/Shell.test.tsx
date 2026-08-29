@@ -53,4 +53,15 @@ describe('AppShell sidebar', () => {
     expect(screen.getByRole('dialog', { name: 'Global search' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Date Range' })).toBeDisabled()
   })
+
+  it('keeps the consolidated planning workspaces visible and hides superseded shortcuts', () => {
+    render(<MemoryRouter initialEntries={['/dashboard']}><AppShell /></MemoryRouter>)
+
+    expect(screen.getByRole('link', { name: /Parcel Consolidation/i })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Load Optimization$/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Route Optimization & Load Balancing/i })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Load Plans/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Loaded Vehicles/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Vehicle Types/i })).not.toBeInTheDocument()
+  })
 })

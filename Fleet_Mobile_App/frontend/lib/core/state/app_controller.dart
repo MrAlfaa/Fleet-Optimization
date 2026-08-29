@@ -23,6 +23,8 @@ class AppController extends ChangeNotifier {
   TripReadiness readiness = TripReadiness.empty();
   AssignedVehicle vehicle = AssignedVehicle.empty();
   DriverRoute route = DriverRoute.empty();
+  RouteGeometry routeGeometry = RouteGeometry.fallbackFor(DriverRoute.empty());
+  DriverLocationUpdate? currentLocation;
   List<DriverAlert> alerts = [];
   List<TripEvent> tripEvents = [];
   int selectedIndex = 0;
@@ -87,6 +89,8 @@ class AppController extends ChangeNotifier {
     user = null;
     vehicle = AssignedVehicle.empty();
     route = DriverRoute.empty();
+    routeGeometry = RouteGeometry.fallbackFor(route);
+    currentLocation = null;
     alerts = [];
     tripEvents = [];
     tripActive = false;
@@ -106,7 +110,16 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> handleDeviceRevoked() => forgetDevice();
+  Future<bool> refreshExpiredSession() async {
+    try {
+      user = await authService.refreshSession();
+      notifyListeners();
+      return true;
+    } on AuthException {
+      await forgetDevice();
+      return false;
+    }
+  }
 
   void lockApp() {
     if (!enrolled) return;
@@ -126,6 +139,26 @@ class AppController extends ChangeNotifier {
 
   Future<void> endTripWithInspection(PostTripInspection inspection) async =>
       _endTrip(inspection);
+
+  Future<bool> startNavigationToStop(String stopId) async {
+    if (!tripActive) {
+      error = 'Start the assigned trip before opening FleetOpt navigation.';
+      notifyListeners();
+      return false;
+    }
+    error = null;
+    try {
+      final navigation = await driverService.startStopNavigation(stopId);
+      route = route.copyWith(navigation: navigation);
+      await _sendLocationUpdate(showPermissionWarning: true);
+      notifyListeners();
+      return true;
+    } catch (exception) {
+      error = exception.toString();
+      notifyListeners();
+      return false;
+    }
+  }
 
   Future<void> updateStopStatus(String stopId, DeliveryStatus status) async {
     error = null;
@@ -229,12 +262,32 @@ class AppController extends ChangeNotifier {
       vehicle =
           await driverService.getAssignedVehicle() ?? AssignedVehicle.empty();
       route = await driverService.getTodayRoute() ?? DriverRoute.empty();
+      tripActive = route.isInProgress;
+      if (tripActive) {
+        _startLocationTimer();
+      } else {
+        _stopLocationTimer();
+      }
+      routeGeometry = RouteGeometry.fallbackFor(route);
+      if (route.hasAssignedRoute) {
+        try {
+          final backendGeometry = await driverService.getRouteGeometry(
+            route.id,
+          );
+          if (backendGeometry.hasRenderablePath) {
+            routeGeometry = backendGeometry;
+          }
+        } catch (_) {
+          // Route details remain usable with ordered straight-line geometry.
+        }
+      }
       alerts = await driverService.getAlerts();
       tripEvents = await driverService.getTripEvents();
       readiness = await driverService.getTripReadiness();
     } catch (_) {
       vehicle = AssignedVehicle.empty();
       route = DriverRoute.empty();
+      routeGeometry = RouteGeometry.fallbackFor(route);
       alerts = [];
       tripEvents = const [
         TripEvent(
@@ -367,7 +420,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _sendLocationUpdate({bool showPermissionWarning = false}) async {
-    final location = await locationService.getCurrentLocation();
+    DriverLocationUpdate? location;
+    try {
+      location = await locationService.getCurrentLocation();
+    } catch (_) {
+      location = null;
+    }
     if (location == null) {
       locationSharingUnavailable = true;
       if (showPermissionWarning) {
@@ -387,7 +445,9 @@ class AppController extends ChangeNotifier {
 
     try {
       await driverService.sendLocation(location);
+      currentLocation = location;
       locationSharingUnavailable = false;
+      notifyListeners();
     } catch (_) {
       _stopLocationTimer();
       error = 'Unable to send live location. Location sync stopped.';

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../app/fleetopt_driver_app.dart';
 import '../../core/theme/app_theme.dart';
-import '../../services/map_navigation_service.dart';
+import '../../models/driver_models.dart';
 import '../../widgets/fleet_widgets.dart';
+import 'assigned_route_map.dart';
+import 'fleet_navigation_screen.dart';
 import 'stop_detail_screen.dart';
 
 class TodayRouteScreen extends StatelessWidget {
@@ -49,62 +51,17 @@ class TodayRouteScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                height: 210,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF61717F), Color(0xFF95A9B8)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: Stack(
-                  children: [
-                    const _MapGrid(),
-                    Positioned(
-                      left: 28,
-                      top: 32,
-                      child: _MapMarker(
-                        color: AppColors.primary,
-                        label: 'Depot',
-                      ),
-                    ),
-                    Positioned(
-                      right: 42,
-                      top: 62,
-                      child: _MapMarker(color: AppColors.critical, label: '1'),
-                    ),
-                    Positioned(
-                      left: 86,
-                      bottom: 46,
-                      child: _MapMarker(color: AppColors.warning, label: '2'),
-                    ),
-                    Positioned(
-                      right: 86,
-                      bottom: 36,
-                      child: _MapMarker(color: AppColors.success, label: '4'),
-                    ),
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 14,
-                      child: Row(
-                        children: [
-                          StatusPill(
-                            label: '${controller.route.stops.length} stops',
-                            color: AppColors.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          StatusPill(
-                            label:
-                                '${controller.route.totalDistanceKm.toStringAsFixed(1)} km',
-                            color: AppColors.success,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+              SizedBox(
+                height: 240,
+                child: AssignedRouteMap(
+                  route: controller.route,
+                  geometry: controller.routeGeometry,
+                  currentLocation: controller.currentLocation == null
+                      ? null
+                      : RouteCoordinate(
+                          latitude: controller.currentLocation!.latitude,
+                          longitude: controller.currentLocation!.longitude,
+                        ),
                 ),
               ),
               Padding(
@@ -122,6 +79,23 @@ class TodayRouteScreen extends StatelessWidget {
                     Text(
                       'Origin: ${controller.route.depot}',
                       style: const TextStyle(color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        StatusPill(
+                          label:
+                              '${controller.route.assignedStopCount} assigned stops',
+                          color: AppColors.primary,
+                        ),
+                        StatusPill(
+                          label:
+                              '${controller.route.totalDistanceKm.toStringAsFixed(1)} km',
+                          color: AppColors.success,
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -160,23 +134,54 @@ class TodayRouteScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
+                    'Parcel ${nextStop.parcelCode.isEmpty ? nextStop.id : nextStop.parcelCode} - Stop ${nextStop.sequence}',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
                     '${nextStop.address}\n${nextStop.zone}',
                     style: const TextStyle(color: AppColors.muted),
                   ),
+                  if (nextStop.parcelWeightKg != null ||
+                      nextStop.handling.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      [
+                        if (nextStop.parcelWeightKg != null)
+                          '${nextStop.parcelWeightKg!.toStringAsFixed(1)} kg',
+                        if (nextStop.handling.isNotEmpty)
+                          nextStop.handling.join(', '),
+                      ].join(' - '),
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   FleetButton(
-                    label: 'Start navigation to next parcel',
+                    label: 'Start FleetOpt navigation',
                     icon: Icons.navigation_rounded,
                     onPressed: () async {
-                      final opened = await GoogleMapsNavigation.openStop(
-                        nextStop,
+                      final started = await controller.startNavigationToStop(
+                        nextStop.id,
                       );
-                      if (!context.mounted || opened) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Unable to open navigation.'),
-                        ),
-                      );
+                      if (!context.mounted) return;
+                      if (started) {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const FleetNavigationScreen(),
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              controller.error ?? 'Unable to start navigation.',
+                            ),
+                          ),
+                        );
+                      }
                     },
                   ),
                 ],
@@ -186,22 +191,36 @@ class TodayRouteScreen extends StatelessWidget {
           const SizedBox(height: 14),
         ],
         FleetButton(
-          label: 'Open full route in Google Maps',
+          label: 'Open FleetOpt route navigator',
           icon: Icons.map_outlined,
-          onPressed: () async {
-            final opened = await GoogleMapsNavigation.openRoute(
-              controller.route,
-            );
-            if (!context.mounted || opened) {
-              return;
-            }
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Unable to open the full route in Google Maps.'),
-              ),
-            );
-          },
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const FleetNavigationScreen()),
+          ),
         ),
+        if (controller.route.deliveryDate.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          FleetCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${controller.route.deliveryDate} · ${controller.route.deliveryPeriod == 'second_half' ? 'Second Half (13:00–17:00)' : 'First Half (08:00–12:00)'}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                if (controller.route.consolidationId.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Consolidation ${controller.route.consolidationId} · Load ${controller.route.loadId}',
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         Text(
           'Stop order',
@@ -264,83 +283,6 @@ class TodayRouteScreen extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MapGrid extends StatelessWidget {
-  const _MapGrid();
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(painter: _MapPainter(), size: Size.infinite);
-  }
-}
-
-class _MapPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.18)
-      ..strokeWidth = 1;
-    for (var x = 0.0; x < size.width; x += 28) {
-      canvas.drawLine(Offset(x, 0), Offset(x + 120, size.height), paint);
-    }
-    for (var y = 18.0; y < size.height; y += 34) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y - 60), paint);
-    }
-    final routePaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(Offset(44, 52), Offset(size.width - 58, 82), routePaint);
-    canvas.drawLine(
-      Offset(size.width - 58, 82),
-      Offset(112, size.height - 54),
-      routePaint,
-    );
-    canvas.drawLine(
-      Offset(112, size.height - 54),
-      Offset(size.width - 96, size.height - 44),
-      routePaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _MapMarker extends StatelessWidget {
-  const _MapMarker({required this.color, required this.label});
-
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 34,
-      height: 34,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 3),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.22),
-            blurRadius: 10,
-          ),
-        ],
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
     );
   }
 }

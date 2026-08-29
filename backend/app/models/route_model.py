@@ -12,6 +12,7 @@ from app.utils.route_utils import ROUTE_STATUSES, generate_route_code
 ROUTE_PLAN_COLLECTION = "route_plans"
 ROUTE_SEGMENT_COLLECTION = "route_segments"
 ROUTE_MODEL_RUN_COLLECTION = "route_model_runs"
+ROUTE_SET_COLLECTION = "route_sets"
 
 
 def build_route_plan_document(data: dict[str, Any]) -> dict[str, Any]:
@@ -24,7 +25,14 @@ def build_route_plan_document(data: dict[str, Any]) -> dict[str, Any]:
         "depot_latitude": float(data["depot_latitude"]),
         "depot_longitude": float(data["depot_longitude"]),
         "depot_name": data.get("depot_name"),
+        "delivery_date": data.get("delivery_date"),
+        "delivery_period": data.get("delivery_period"),
         "delivery_order_ids": data.get("delivery_order_ids", []),
+        "load_plan_id": data.get("load_plan_id"),
+        "load_id": data.get("load_id"),
+        "option_id": data.get("option_id"),
+        "consolidation_id": data.get("consolidation_id"),
+        "route_set_id": data.get("route_set_id"),
         "optimized_stop_order": data.get("optimized_stop_order", []),
         "total_predicted_eta_minutes": float(data.get("total_predicted_eta_minutes", 0)),
         "total_route_cost_score": float(data.get("total_route_cost_score", 0)),
@@ -88,7 +96,20 @@ async def ensure_route_indexes() -> None:
         await route_plans.create_index([("status", ASCENDING)], name="route_plan_status")
         await route_plans.create_index([("vehicle_id", ASCENDING)], name="route_plan_vehicle")
         await route_plans.create_index([("driver_id", ASCENDING)], name="route_plan_driver")
+        await route_plans.create_index(
+            [("vehicle_id", ASCENDING)],
+            unique=True,
+            partialFilterExpression={"status": {"$in": ["dispatched", "in_progress"]}},
+            name="unique_active_route_vehicle",
+        )
+        await route_plans.create_index(
+            [("driver_id", ASCENDING)],
+            unique=True,
+            partialFilterExpression={"status": {"$in": ["dispatched", "in_progress"]}},
+            name="unique_active_route_driver",
+        )
         await route_plans.create_index([("created_at", DESCENDING)], name="route_plan_created_at")
+        await route_plans.create_index([("route_set_id", ASCENDING)], name="route_plan_set")
 
         route_segments = db[ROUTE_SEGMENT_COLLECTION]
         await route_segments.create_index([("route_plan_id", ASCENDING)], name="route_segment_plan")
@@ -96,5 +117,9 @@ async def ensure_route_indexes() -> None:
         await route_segments.create_index([("created_at", DESCENDING)], name="route_segment_created_at")
 
         await db[ROUTE_MODEL_RUN_COLLECTION].create_index([("created_at", DESCENDING)], name="route_model_run_created_at")
+        route_sets = db[ROUTE_SET_COLLECTION]
+        await route_sets.create_index([("route_set_id", ASCENDING)], unique=True, name="unique_route_set_id")
+        await route_sets.create_index([("load_plan_id", ASCENDING)], unique=True, name="unique_route_set_plan")
+        await route_sets.create_index([("status", ASCENDING), ("created_at", DESCENDING)], name="route_set_status")
     except PyMongoError:
         return

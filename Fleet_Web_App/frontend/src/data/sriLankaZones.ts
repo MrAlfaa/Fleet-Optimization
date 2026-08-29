@@ -1,30 +1,28 @@
 export const DEMAND_DATA_CONTEXT_NOTE =
-  'Sri Lanka demo scenario mapped from Olist-derived forecasting outputs; model has not been retrained using Sri Lankan demand data.'
+  'Colombo operational demand forecast with live-order comparison and fleet capacity planning.'
 
 export const SRI_LANKA_ZONES = [
   { id: 'LK_colombo_central', name: 'Colombo Central', latitude: 6.9271, longitude: 79.8612 },
-  { id: 'LK_kandy_city', name: 'Kandy City', latitude: 7.2906, longitude: 80.6337 },
-  { id: 'LK_galle_city', name: 'Galle City', latitude: 6.0329, longitude: 80.2168 },
-  { id: 'LK_kurunegala', name: 'Kurunegala', latitude: 7.4863, longitude: 80.3647 },
-  { id: 'LK_jaffna_city', name: 'Jaffna City', latitude: 9.6615, longitude: 80.0255 },
-  { id: 'LK_negombo', name: 'Negombo', latitude: 7.2083, longitude: 79.8358 },
-  { id: 'LK_gampaha', name: 'Gampaha', latitude: 7.0873, longitude: 80.0144 },
-  { id: 'LK_matara', name: 'Matara', latitude: 5.9549, longitude: 80.555 },
   { id: 'LK_nugegoda', name: 'Nugegoda', latitude: 6.8649, longitude: 79.8997 },
   { id: 'LK_malabe', name: 'Malabe', latitude: 6.9061, longitude: 79.9696 },
+  { id: 'LK_dehiwala', name: 'Dehiwala', latitude: 6.8511, longitude: 79.8659 },
+  { id: 'LK_mount_lavinia', name: 'Mount Lavinia', latitude: 6.8389, longitude: 79.8638 },
+  { id: 'LK_rajagiriya', name: 'Rajagiriya', latitude: 6.9097, longitude: 79.8943 },
+  { id: 'LK_battaramulla', name: 'Battaramulla', latitude: 6.9022, longitude: 79.9197 },
+  { id: 'LK_kaduwela', name: 'Kaduwela', latitude: 6.9319, longitude: 79.9842 },
+  { id: 'LK_moratuwa', name: 'Moratuwa', latitude: 6.773, longitude: 79.8816 },
+  { id: 'LK_kotte', name: 'Sri Jayawardenepura Kotte', latitude: 6.8905, longitude: 79.9015 },
+  { id: 'LK_wellawatte', name: 'Wellawatte', latitude: 6.8747, longitude: 79.8605 },
+  { id: 'LK_kollupitiya', name: 'Kollupitiya', latitude: 6.9105, longitude: 79.8503 },
+  { id: 'LK_borella', name: 'Borella', latitude: 6.9147, longitude: 79.8777 },
+  { id: 'LK_wattala', name: 'Wattala', latitude: 6.9897, longitude: 79.8927 },
+  { id: 'LK_piliyandala', name: 'Piliyandala', latitude: 6.8018, longitude: 79.9227 },
 ] as const
 
 const SOURCE_ZONE_TO_OPERATIONAL: Record<string, (typeof SRI_LANKA_ZONES)[number]> = {
   SP_sao_paulo: SRI_LANKA_ZONES[0],
-  RJ_rio_de_janeiro: SRI_LANKA_ZONES[1],
-  MG_belo_horizonte: SRI_LANKA_ZONES[2],
-  DF_brasilia: SRI_LANKA_ZONES[3],
-  PR_curitiba: SRI_LANKA_ZONES[4],
-  SP_campinas: SRI_LANKA_ZONES[5],
-  RS_porto_alegre: SRI_LANKA_ZONES[6],
-  BA_salvador: SRI_LANKA_ZONES[7],
-  SP_guarulhos: SRI_LANKA_ZONES[8],
-  SP_sao_bernardo_do_campo: SRI_LANKA_ZONES[9],
+  SP_guarulhos: SRI_LANKA_ZONES[1],
+  SP_sao_bernardo_do_campo: SRI_LANKA_ZONES[2],
 }
 
 export function zoneDisplayName(value: string) {

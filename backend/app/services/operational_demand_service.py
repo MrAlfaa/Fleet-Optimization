@@ -4,13 +4,24 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from bson import ObjectId
 from fastapi import HTTPException, status
 
 from app.core.database import get_database
 from app.models.delivery_model import DELIVERY_COLLECTION
-from app.models.demand_model import DEMAND_FORECAST_COLLECTION, OPERATIONAL_DEMAND_DAILY_COLLECTION
+from app.models.demand_model import (
+    DEMAND_ACTIVE_RUN_COLLECTION,
+    DEMAND_ACTIVE_RUN_POINTER_ID,
+    DEMAND_FORECAST_COLLECTION,
+    OPERATIONAL_DEMAND_DAILY_COLLECTION,
+)
 from app.models.user_model import utc_now
-from app.utils.demand_utils import estimate_required_vehicles, normalize_demand_level, safe_float
+from app.utils.demand_utils import (
+    estimate_required_vehicles,
+    normalize_demand_level,
+    recommended_action_from_demand_level,
+    safe_float,
+)
 from app.utils.object_id import serialize_mongo_document
 from app.utils.sri_lanka_zones import DATA_CONTEXT, enrich_zone_record, operational_zone_options, source_zone_id
 
@@ -100,12 +111,6 @@ async def rebuild_operational_demand() -> dict[str, int]:
     return {"days_rebuilt": len(keys), "zones_count": len({key[0] for key in keys})}
 
 
-def calibration_values(actual_total: float, raw_total: float, history_days: int) -> tuple[str, float | None]:
-    if history_days < 30 or raw_total <= 0:
-        return "insufficient_history", None
-    return "active", round(min(2.0, max(0.5, actual_total / raw_total)), 4)
-
-
 async def list_actuals(zone_id: str | None = None, start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
     query: dict[str, Any] = {}
     if zone_id:
@@ -125,40 +130,63 @@ async def list_actuals(zone_id: str | None = None, start_date: date | None = Non
     return result
 
 
-async def forecast_vs_actual(zone_id: str | None = None, start_date: date | None = None, end_date: date | None = None) -> dict[str, Any]:
+def _comparison_item(forecast: dict[str, Any], actual_orders: int | None) -> dict[str, Any]:
+    enriched = enrich_zone_record(forecast)
+    predicted = round(safe_float(forecast.get("predicted_demand")), 2)
+    variance = round(predicted - actual_orders, 2) if actual_orders is not None else None
+    variance_percentage = (
+        round((variance / actual_orders) * 100, 2)
+        if variance is not None and actual_orders not in {None, 0}
+        else None
+    )
+    level = normalize_demand_level(predicted)
+    return {
+        "date": forecast["forecast_date"],
+        "operational_zone_id": enriched["operational_zone_id"],
+        "zone_display_name": enriched["zone_display_name"],
+        "predicted_demand": predicted,
+        "final_predicted_demand": predicted,
+        "local_actual_demand": actual_orders,
+        "variance_orders": variance,
+        "variance_percentage": variance_percentage,
+        "baseline_forecast": (
+            round(safe_float(forecast.get("baseline_prophet_forecast")), 2)
+            if forecast.get("baseline_prophet_forecast") is not None
+            else None
+        ),
+        "lower_bound": round(safe_float(forecast.get("lower_bound")), 2) if forecast.get("lower_bound") is not None else None,
+        "upper_bound": round(safe_float(forecast.get("upper_bound")), 2) if forecast.get("upper_bound") is not None else None,
+        "demand_level": level,
+        "estimated_required_vehicles": estimate_required_vehicles(predicted),
+        "recommended_action": recommended_action_from_demand_level(level),
+        "model_version": forecast.get("model_version"),
+        "generated_at": forecast.get("created_at"),
+    }
+
+
+async def forecast_vs_actual(
+    zone_id: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    *,
+    model_run_id: ObjectId | None = None,
+    active_run_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     actual_rows = await list_actuals(zone_id, start_date, end_date)
     actual_by_key = {
         (row["operational_zone_id"], datetime.fromisoformat(str(row["demand_date"]).replace("Z", "+00:00")).date()): row
         for row in actual_rows
     }
-    forecast_query: dict[str, Any] = {}
+    active_run_id = model_run_id
+    if active_run_id is None:
+        pointer = await _db()[DEMAND_ACTIVE_RUN_COLLECTION].find_one({"_id": DEMAND_ACTIVE_RUN_POINTER_ID})
+        active_run_id = pointer.get("model_run_id") if pointer else None
+    if active_run_id is None:
+        return {"items": [], "total": 0, "data_context": DATA_CONTEXT, "active_run": None}
+    forecast_query: dict[str, Any] = {"model_run_id": active_run_id}
     if zone_id:
-        forecast_query["zone_id"] = source_zone_id(zone_id)
+        forecast_query["zone_id"] = zone_id
     forecast_rows = await _db()[DEMAND_FORECAST_COLLECTION].find(forecast_query).sort("forecast_date", 1).limit(5000).to_list(5000)
-    forecast_by_key: dict[tuple[str, date], dict[str, Any]] = {}
-    for row in forecast_rows:
-        enriched = enrich_zone_record(row)
-        forecast_by_key[(enriched["operational_zone_id"], row["forecast_date"].date())] = row
-
-    calibration_by_zone: dict[str, tuple[str, float | None, int]] = {}
-    yesterday = datetime.now(COLOMBO_TZ).date() - timedelta(days=1)
-    for option in operational_zone_options():
-        operational = str(option["operational_zone_id"])
-        observed_dates = sorted(key[1] for key in actual_by_key if key[0] == operational and key[1] <= yesterday)
-        history_days = 0
-        actual_total = 0.0
-        raw_total = 0.0
-        if observed_dates:
-            window_end = observed_dates[-1]
-            window_start = window_end - timedelta(days=29)
-            window_dates = [window_start + timedelta(days=index) for index in range(30)]
-            if observed_dates[0] <= window_start and all((operational, value) in forecast_by_key for value in window_dates):
-                history_days = 30
-                actual_total = sum(safe_float(actual_by_key.get((operational, value), {}).get("total_orders")) for value in window_dates)
-                raw_total = sum(safe_float(forecast_by_key[(operational, value)].get("predicted_demand")) for value in window_dates)
-        status_value, factor = calibration_values(actual_total, raw_total, history_days)
-        calibration_by_zone[operational] = (status_value, factor, history_days)
-
     items = []
     for raw in forecast_rows:
         enriched = enrich_zone_record(raw)
@@ -168,26 +196,18 @@ async def forecast_vs_actual(zone_id: str | None = None, start_date: date | None
             continue
         if end_date and value_date > end_date:
             continue
-        status_value, factor, history_days = calibration_by_zone[operational]
-        raw_forecast = safe_float(raw.get("predicted_demand"))
-        final = raw_forecast if factor is None else raw_forecast * factor
         actual = actual_by_key.get((operational, value_date))
-        items.append({
-            "date": raw["forecast_date"],
-            "operational_zone_id": operational,
-            "zone_display_name": enriched["zone_display_name"],
-            "raw_mapped_forecast": round(raw_forecast, 2),
-            "local_actual_demand": actual.get("total_orders") if actual else None,
-            "calibration_status": status_value,
-            "calibration_factor": factor,
-            "calibrated_forecast": round(final, 2) if factor is not None else None,
-            "final_predicted_demand": round(final, 2),
-            "history_days": history_days,
-            "demand_level": normalize_demand_level(final),
-            "estimated_required_vehicles": estimate_required_vehicles(final),
-            "data_context": DATA_CONTEXT,
-        })
-    return {"items": items, "total": len(items), "data_context": DATA_CONTEXT}
+        items.append(_comparison_item(raw, actual.get("total_orders") if actual else None))
+    if active_run_metadata is None:
+        from app.services.demand_forecasting_service import _active_run_metadata
+
+        active_run_metadata = await _active_run_metadata()
+    return {
+        "items": items,
+        "total": len(items),
+        "data_context": DATA_CONTEXT,
+        "active_run": active_run_metadata,
+    }
 
 
 def operational_zones() -> list[dict[str, Any]]:

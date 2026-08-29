@@ -1,0 +1,26 @@
+{
+  "dataset_end": "2026-04-01",
+  "dataset_start": "2021-04-02",
+  "feature_schema_version": "2.0",
+  "file_sha256": {
+    "demand_forecasting_metrics.json": "067820d05a138787522b4b28a267edfee6a4d67ac98648aea93f6c21efad2669",
+    "demand_forecasting_model_bundle.joblib": "b7b7675c783ceada230cb6e7a9b9c00e97ed40aec481abb724eec7bf190986f8",
+    "fleet_planning_recommendations.csv": "10006d523049d96965431821ce23e6e64f36c61b29454250b1d2b0c0160446d4",
+    "future_demand_forecast.csv": "3b74dc97d6d276ddbf9761b00385fac2726e9a661bd6875d600be985cea9ca1c",
+    "zone_adjacency_graph.json": "f6f57522c0a89022d35dc05af952c2cc012b4a855ee5cbcf4d04a5f78ae20de1",
+    "zone_metadata.csv": "427836d750014133d688988af8915e2ee967fdf9342553eae418ef95840fd33c"
+  },
+  "forecast_end": "2026-05-01",
+  "forecast_start": "2026-04-02",
+  "model_version": "fleetopt-demand-synthetic-v1",
+  "required_runtime_files": [
+    "demand_forecasting_model_bundle.joblib",
+    "demand_forecasting_metrics.json",
+    "future_demand_forecast.csv",
+    "fleet_planning_recommendations.csv",
+    "zone_metadata.csv",
+    "zone_adjacency_graph.json"
+  ],
+  "source_zip_sha256": "df8bcdcf82c56aa9683a12accabc8f47d3792490867806b280135e46c071140b",
+  "training_data_version": "fleetopt-sim-v1"
+}

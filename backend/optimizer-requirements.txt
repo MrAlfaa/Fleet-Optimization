@@ -1,0 +1,12 @@
+# Install into a separate optimizer virtual environment. Do not merge these
+# pins into the main API environment because deployed ML artifacts use sklearn 1.6.1.
+motor==3.7.1
+pymongo==4.15.0
+fastapi==0.116.1
+pydantic==2.11.7
+pydantic-settings==2.10.1
+python-dotenv==1.1.1
+tzdata==2026.1
+numpy==2.2.6
+scikit-learn==1.7.2
+pymoo==0.6.1.5
