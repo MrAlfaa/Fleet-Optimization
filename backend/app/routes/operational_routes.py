@@ -7,10 +7,18 @@ from app.services.operational_context_service import get_operational_context, ge
 from app.services.search_service import global_search
 from app.services.route_optimizer_service import get_route_plan
 from app.utils.response import success_response
+from app.utils.branch_operations import get_branch_profile
 
 
 router = APIRouter(tags=["Operational Context"])
 WEB_ROLES = ["admin", "fleet_manager", "maintenance_manager", "route_planner"]
+
+
+@router.get("/operations/branch")
+async def operations_branch(
+    _: dict = Depends(require_roles([*WEB_ROLES, "driver"])),
+):
+    return success_response("Operational branch retrieved", data=get_branch_profile())
 
 
 @router.get("/operations/context")

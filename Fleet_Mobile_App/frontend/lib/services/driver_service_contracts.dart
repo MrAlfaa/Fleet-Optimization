@@ -21,6 +21,7 @@ abstract class DriverAuthService {
   Future<void> configurePin(String pin, {required bool enableBiometrics});
   Future<DriverUser> unlockWithPin(String pin);
   Future<DriverUser> unlockWithBiometrics();
+  Future<DriverUser> refreshSession();
   Future<bool> canUseBiometrics();
   Future<void> logout();
   Future<void> clearEnrollment();
@@ -29,6 +30,7 @@ abstract class DriverAuthService {
 abstract class DriverDataService {
   Future<AssignedVehicle?> getAssignedVehicle();
   Future<DriverRoute?> getTodayRoute();
+  Future<RouteGeometry> getRouteGeometry(String routeId);
   Future<List<DriverAlert>> getAlerts();
   Future<List<TripEvent>> getTripEvents();
   Future<TripReadiness> getTripReadiness();

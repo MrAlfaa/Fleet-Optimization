@@ -10,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.core.database import close_mongo_connection, connect_to_mongo, get_database
 from app.models.alert_model import ALERT_COLLECTION, build_alert_document, ensure_alert_indexes
-from app.models.delivery_model import DELIVERY_COLLECTION, ensure_delivery_indexes
+from app.models.delivery_model import DELIVERY_COLLECTION, build_delivery_order_document, ensure_delivery_indexes
 from app.models.demand_model import DEMAND_FORECAST_COLLECTION, DEMAND_ZONE_COLLECTION, ensure_demand_indexes
 from app.models.maintenance_model import MAINTENANCE_COLLECTION, build_maintenance_document, ensure_maintenance_indexes
 from app.models.predictive_model import PREDICTION_COLLECTION, ensure_prediction_indexes
@@ -23,11 +23,10 @@ from app.models.vehicle_part_model import (
     build_vehicle_part_document,
     ensure_vehicle_part_indexes,
 )
-from app.schemas.predictive_schema import EVSensorInput, PredictiveMaintenanceRequest
 from app.services.delivery_service import create_delivery_order
 from app.services.demand_forecasting_service import import_artifact_forecasts_to_database, refresh_forecast_from_model
 from app.services.operational_demand_service import rebuild_operational_demand
-from app.services.predictive_maintenance_service import predict_vehicle_maintenance
+from app.services.predictive_maintenance_service import recalculate_vehicle_maintenance
 from app.utils.sri_lanka_zones import operational_zone_options
 
 
@@ -44,44 +43,17 @@ VEHICLE_SCENARIOS = [
     {"vehicle_code": "QA-EV-008", "registration_number": "WP CAA-1208", "vehicle_type": "electric_bus", "brand": "BYD", "model": "K9", "year": 2022, "current_mileage": 68400, "battery_capacity_kwh": 324},
 ]
 
-
-def _prediction_scenario(index: int, mileage: float) -> dict[str, Any]:
-    stress = index / max(len(VEHICLE_SCENARIOS) - 1, 1)
-    return {
-        "SoC": round(86 - stress * 58, 2),
-        "SoH": round(97 - stress * 28, 2),
-        "Battery_Voltage": round(402 - stress * 42, 2),
-        "Battery_Current": round(34 + stress * 92, 2),
-        "Battery_Temperature": round(29 + stress * 25, 2),
-        "Charge_Cycles": round(180 + stress * 980, 2),
-        "Motor_Temperature": round(55 + stress * 52, 2),
-        "Motor_Vibration": round(0.12 + stress * 1.45, 3),
-        "Motor_Torque": round(140 + stress * 110, 2),
-        "Motor_RPM": round(2200 + stress * 2400, 2),
-        "Power_Consumption": round(17 + stress * 24, 2),
-        "Brake_Pad_Wear": round(12 + stress * 76, 2),
-        "Brake_Pressure": round(62 - stress * 19, 2),
-        "Reg_Brake_Efficiency": round(91 - stress * 34, 2),
-        "Tire_Pressure": round(35 - stress * 7, 2),
-        "Tire_Temperature": round(30 + stress * 24, 2),
-        "Suspension_Load": round(68 + stress * 64, 2),
-        "Driving_Speed": round(38 + stress * 34, 2),
-        "Distance_Traveled": float(mileage),
-        "Route_Roughness": round(0.12 + stress * 0.77, 3),
-        "Ambient_Temperature": round(28 + stress * 7, 2),
-        "Ambient_Humidity": round(63 + stress * 19, 2),
-        "Load_Weight": round(180 + stress * 930, 2),
-        "Idle_Time": round(8 + stress * 46, 2),
-        "hour": 8 + index,
-        "day_of_week": index % 7,
-        "month": datetime.now(timezone.utc).month,
-        "is_weekend": 1 if index % 7 in {5, 6} else 0,
-    }
+VEHICLE_LOAD_DEFAULTS = {
+    "car": {"profile_code": "COMPACT_CAR", "capacity_m3": 1.764, "cargo_length_cm": 160, "cargo_width_cm": 105, "cargo_height_cm": 105, "max_parcels": 18, "max_stack_layers": 2, "vehicle_max_stack_weight_kg": 60, "payload_capacity_kg": 420},
+    "van": {"profile_code": "MEDIUM_VAN", "capacity_m3": 9.52, "cargo_length_cm": 320, "cargo_width_cm": 170, "cargo_height_cm": 175, "max_parcels": 70, "max_stack_layers": 4, "vehicle_max_stack_weight_kg": 300, "payload_capacity_kg": 1200},
+    "truck": {"profile_code": "MEDIUM_TRUCK", "capacity_m3": 24.948, "cargo_length_cm": 540, "cargo_width_cm": 220, "cargo_height_cm": 210, "max_parcels": 180, "max_stack_layers": 6, "vehicle_max_stack_weight_kg": 900, "payload_capacity_kg": 4500},
+    "bus": {"profile_code": "HEAVY_BUS", "capacity_m3": 23.94, "cargo_length_cm": 600, "cargo_width_cm": 210, "cargo_height_cm": 190, "max_parcels": 140, "max_stack_layers": 5, "vehicle_max_stack_weight_kg": 600, "payload_capacity_kg": 3000},
+}
 
 
 PREDICTION_SCENARIOS = [
-    _prediction_scenario(index, vehicle["current_mileage"])
-    for index, vehicle in enumerate(VEHICLE_SCENARIOS)
+    {"trigger": "imported", "notes": f"{SEED_TAG} server-derived risk scenario {index + 1}"}
+    for index, _vehicle in enumerate(VEHICLE_SCENARIOS)
 ]
 
 
@@ -89,6 +61,10 @@ DELIVERY_SCENARIOS: list[dict[str, Any]] = []
 for zone_index, zone in enumerate(operational_zone_options()):
     for item_index in range(2):
         offset = 0.006 * (item_index + 1)
+        length_cm = 42 + (zone_index % 4) * 8 + item_index * 12
+        width_cm = 30 + (zone_index % 3) * 7 + item_index * 8
+        height_cm = 24 + (zone_index % 5) * 5 + item_index * 10
+        fragile = (zone_index + item_index) % 5 == 0
         DELIVERY_SCENARIOS.append(
             {
                 "order_code": f"QA-ORD-{zone_index + 1:02d}-{item_index + 1:02d}",
@@ -103,11 +79,23 @@ for zone_index, zone in enumerate(operational_zone_options()):
                 "zone_id": zone["operational_zone_id"],
                 "zone_assignment_method": "confirmed",
                 "parcel_weight": round(4.5 + zone_index * 1.7 + item_index, 2),
-                "parcel_volume": round(0.05 + item_index * 0.03, 2),
+                "parcel_volume": round((length_cm * width_cm * height_cm) / 1_000_000, 8),
+                "load_profile": {
+                    "length_cm": length_cm,
+                    "width_cm": width_cm,
+                    "height_cm": height_cm,
+                    "fragile": fragile,
+                    "stackable": not fragile,
+                    "max_stack_weight_kg": 0 if fragile else 35,
+                    "loading_orientation_fixed": fragile,
+                    "do_not_tilt": fragile,
+                    "service_type": "door_to_door",
+                },
                 "priority": ["low", "medium", "high", "urgent"][(zone_index + item_index) % 4],
                 "delivery_status": "pending",
-                "is_demo": False,
-                "scheduled_date": utc_now() + timedelta(days=(zone_index + item_index) % 7),
+                "is_demo": True,
+                "delivery_date": utc_now().date().isoformat(),
+                "delivery_period": "first_half" if item_index == 0 else "second_half",
             }
         )
 
@@ -126,10 +114,27 @@ async def _ensure_indexes() -> None:
 async def _seed_vehicles(db) -> list[dict[str, Any]]:
     vehicles: list[dict[str, Any]] = []
     for scenario in VEHICLE_SCENARIOS:
+        category = scenario["vehicle_type"].rsplit("_", 1)[-1]
+        load_defaults = VEHICLE_LOAD_DEFAULTS[category]
+        canonical = {
+            "vehicle_category": category,
+            "payload_capacity_kg": load_defaults["payload_capacity_kg"],
+            "in_service_date": f"{scenario['year']}-01-01",
+            "is_demo": True,
+            "load_profile": {
+                **{key: value for key, value in load_defaults.items() if key != "payload_capacity_kg"},
+                "is_refrigerated": False,
+                "is_hazmat_certified": category == "truck",
+                "has_tail_lift": category in {"van", "truck"},
+                "available_from": "08:00",
+                "available_until": "17:00",
+            },
+        }
         vehicle = await db[VEHICLE_COLLECTION].find_one({"vehicle_code": scenario["vehicle_code"]})
         if vehicle is None:
             document = build_vehicle_document({
                 **scenario,
+                **canonical,
                 "fuel_type": "electric",
                 "status": "active",
                 "health_status": "unknown",
@@ -138,6 +143,11 @@ async def _seed_vehicles(db) -> list[dict[str, Any]]:
             vehicle = await db[VEHICLE_COLLECTION].find_one({"_id": result.inserted_id})
             print(f"CREATED vehicle {scenario['registration_number']}")
         else:
+            await db[VEHICLE_COLLECTION].update_one(
+                {"_id": vehicle["_id"]},
+                {"$set": {**canonical, "updated_at": utc_now()}},
+            )
+            vehicle = await db[VEHICLE_COLLECTION].find_one({"_id": vehicle["_id"]})
             print(f"SKIPPED existing vehicle {scenario['registration_number']}")
         vehicles.append(vehicle)
 
@@ -190,15 +200,11 @@ async def _seed_maintenance(db, vehicles: list[dict[str, Any]], admin_id) -> int
 async def _seed_predictions(db, vehicles: list[dict[str, Any]], current_user: dict[str, Any]) -> tuple[int, list[str]]:
     created = 0
     errors: list[str] = []
-    for vehicle, sensor_data in zip(vehicles, PREDICTION_SCENARIOS, strict=True):
+    for vehicle, trigger_metadata in zip(vehicles, PREDICTION_SCENARIOS, strict=True):
         if await db[PREDICTION_COLLECTION].find_one({"vehicle_id": vehicle["_id"]}):
             continue
         try:
-            await predict_vehicle_maintenance(PredictiveMaintenanceRequest(
-                vehicle_id=str(vehicle["_id"]),
-                input_source="imported",
-                sensor_data=EVSensorInput(**sensor_data),
-            ), current_user)
+            await recalculate_vehicle_maintenance(str(vehicle["_id"]), trigger_metadata, current_user)
             created += 1
         except Exception as exc:
             errors.append(f"{vehicle['vehicle_code']}: {exc}")
@@ -208,7 +214,25 @@ async def _seed_predictions(db, vehicles: list[dict[str, Any]], current_user: di
 async def _seed_deliveries(db, current_user: dict[str, Any]) -> int:
     created = 0
     for scenario in DELIVERY_SCENARIOS:
-        if await db[DELIVERY_COLLECTION].find_one({"order_code": scenario["order_code"]}):
+        existing = await db[DELIVERY_COLLECTION].find_one({"order_code": scenario["order_code"]})
+        if existing:
+            if existing.get("delivery_status") == "pending" and existing.get("load_planning_status", "unplanned") in {"unplanned", "failed"}:
+                prepared = build_delivery_order_document(scenario)
+                await db[DELIVERY_COLLECTION].update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {
+                        "parcel_weight": prepared["parcel_weight"],
+                        "parcel_volume": prepared["parcel_volume"],
+                        "load_profile": prepared["load_profile"],
+                        "delivery_date": prepared["delivery_date"],
+                        "delivery_period": prepared["delivery_period"],
+                        "delivery_window_start": prepared["delivery_window_start"],
+                        "delivery_window_end": prepared["delivery_window_end"],
+                        "scheduled_date": prepared["scheduled_date"],
+                        "is_demo": True,
+                        "updated_at": utc_now(),
+                    }},
+                )
             continue
         await create_delivery_order(scenario, current_user)
         created += 1

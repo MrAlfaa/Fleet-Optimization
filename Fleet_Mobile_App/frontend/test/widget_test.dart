@@ -43,20 +43,45 @@ void main() {
     expect(find.text('Route 7A - Colombo East'), findsOneWidget);
   });
 
-  testWidgets('driver can open route and update a delivery stop', (
+  testWidgets('driver with an active trip can update the next delivery stop', (
+    tester,
+  ) async {
+    final controller = await buildController();
+    await tester.pumpWidget(FleetOptDriverApp(controller: controller));
+    await enrollAndSetup(tester);
+    controller.tripActive = true;
+    await tester.pump();
+
+    await tester.tap(find.text('Route'));
+    await tester.pumpAndSettle();
+    expect(find.text('© OpenStreetMap contributors'), findsOneWidget);
+    expect(find.textContaining('Parcel QA-PARCEL-001'), findsOneWidget);
+    final firstStop = find.text('District Center Alpha').last;
+    await tester.ensureVisible(firstStop);
+    await tester.pumpAndSettle();
+    await tester.tap(firstStop);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delivered'));
+    await tester.pumpAndSettle();
+
+    expect(controller.route.completedStops, 1);
+  });
+
+  testWidgets('vehicle tab shows powertrain-aware inspection requirements', (
     tester,
   ) async {
     final controller = await buildController();
     await tester.pumpWidget(FleetOptDriverApp(controller: controller));
     await enrollAndSetup(tester);
 
-    await tester.tap(find.text('Route'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('District Center Alpha'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Delivered'));
+    await tester.tap(find.text('Vehicle'));
     await tester.pumpAndSettle();
 
-    expect(controller.route.completedStops, 1);
+    expect(find.text('diesel'), findsOneWidget);
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -360));
+    await tester.pumpAndSettle();
+    expect(find.text('Engine and drivetrain condition'), findsOneWidget);
+    expect(find.text('Fuel system condition'), findsOneWidget);
+    expect(find.text('Battery charge (operational context)'), findsNothing);
   });
 }

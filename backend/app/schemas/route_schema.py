@@ -66,14 +66,19 @@ class DeliveryStopInput(BaseModel):
 
 
 class RouteOptimizationRequest(BaseModel):
-    depot_latitude: float
-    depot_longitude: float
+    depot_latitude: float | None = None
+    depot_longitude: float | None = None
     depot_name: str | None = None
     route_name: str | None = None
-    vehicle_id: str | None = None
+    vehicle_id: str
     driver_id: str | None = None
     delivery_order_ids: list[str] | None = None
     delivery_stops: list[DeliveryStopInput] | None = None
+    load_plan_id: str | None = None
+    load_id: str | None = None
+    option_id: str | None = None
+    consolidation_id: str | None = None
+    route_set_id: str | None = None
     use_ml_cost: bool = True
     include_demand_context: bool = True
     include_maintenance_context: bool = True
@@ -86,15 +91,22 @@ class RouteOptimizationRequest(BaseModel):
         return validate_non_empty(value) if value is not None else value
 
     def model_post_init(self, __context) -> None:
-        validate_coordinates(self.depot_latitude, self.depot_longitude)
+        if self.depot_latitude is not None and self.depot_longitude is not None:
+            validate_coordinates(self.depot_latitude, self.depot_longitude)
         if not self.delivery_order_ids and not self.delivery_stops:
             raise ValueError("Provide delivery_order_ids or delivery_stops")
+        if bool(self.load_plan_id) != bool(self.load_id):
+            raise ValueError("load_plan_id and load_id must be provided together")
 
 
 class RouteDispatchRequest(BaseModel):
     vehicle_id: str | None = None
     driver_id: str | None = None
     notes: str | None = None
+
+
+class RouteSetDriverAssignment(BaseModel):
+    driver_id: str
 
 
 class RoutePlanResponse(BaseModel):
@@ -106,6 +118,8 @@ class RoutePlanResponse(BaseModel):
     depot_latitude: float
     depot_longitude: float
     depot_name: str | None = None
+    delivery_date: str | None = None
+    delivery_period: str | None = None
     delivery_order_ids: list[str]
     optimized_stop_order: list[dict[str, Any]]
     total_predicted_eta_minutes: float

@@ -37,6 +37,22 @@ class VehicleReadinessClassificationTests(unittest.TestCase):
         self.assertEqual(result["readiness_status"], "warning")
         self.assertIn("Latest predictive maintenance risk is high", result["warnings"])
 
+    def test_cleared_critical_prediction_does_not_block(self):
+        result = classify_vehicle_readiness(
+            {"status": "active", "health_status": "healthy"},
+            {"risk_level": "critical", "dispatch_hold": False, "review_status": "cleared"},
+        )
+        self.assertTrue(result["eligible"])
+        self.assertEqual(result["readiness_status"], "warning")
+
+    def test_pending_review_hold_blocks(self):
+        result = classify_vehicle_readiness(
+            {"status": "active", "health_status": "healthy"},
+            {"risk_level": "critical", "dispatch_hold": True, "review_status": "pending"},
+        )
+        self.assertFalse(result["eligible"])
+        self.assertIn("Engineering review is pending", result["blocking_reasons"])
+
     def test_missing_prediction_warns_without_blocking(self):
         result = classify_vehicle_readiness(
             {"status": "active", "health_status": "healthy"},

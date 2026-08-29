@@ -13,10 +13,21 @@ class GoogleMapsNavigation {
     });
   }
 
+  static Uri stopFallbackUri(RouteStop stop) {
+    final coordinates = '${stop.latitude},${stop.longitude}';
+    return Uri(
+      scheme: 'geo',
+      path: coordinates,
+      queryParameters: {'q': '$coordinates(${stop.address})'},
+    );
+  }
+
   static Uri routeUri(DriverRoute route) {
-    final stops = route.stops
-        .where((stop) => stop.latitude != 0 && stop.longitude != 0)
-        .toList(growable: false);
+    final stops =
+        route.stops
+            .where((stop) => stop.latitude != 0 && stop.longitude != 0)
+            .toList(growable: false)
+          ..sort((left, right) => left.sequence.compareTo(right.sequence));
     final destination = stops.isNotEmpty ? stops.last : null;
     final waypoints = stops.length > 1
         ? stops
@@ -38,13 +49,26 @@ class GoogleMapsNavigation {
   }
 
   static Future<bool> openStop(RouteStop stop) {
-    return launchUrl(stopUri(stop), mode: LaunchMode.externalApplication);
+    return _launchWithFallback(stopUri(stop), stopFallbackUri(stop));
   }
 
   static Future<bool> openRoute(DriverRoute route) {
     if (!route.hasAssignedRoute) {
       return Future.value(false);
     }
-    return launchUrl(routeUri(route), mode: LaunchMode.externalApplication);
+    final orderedStops = [...route.stops]
+      ..sort((left, right) => left.sequence.compareTo(right.sequence));
+    final destination = orderedStops.isEmpty ? null : orderedStops.last;
+    if (destination == null) return Future.value(false);
+    return _launchWithFallback(routeUri(route), stopFallbackUri(destination));
+  }
+
+  static Future<bool> _launchWithFallback(Uri primary, Uri fallback) async {
+    final opened = await launchUrl(
+      primary,
+      mode: LaunchMode.externalApplication,
+    );
+    if (opened) return true;
+    return launchUrl(fallback, mode: LaunchMode.externalApplication);
   }
 }

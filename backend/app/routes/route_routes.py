@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.middleware.auth_middleware import require_roles
+from app.middleware.auth_middleware import get_current_user, require_roles
 from app.models.route_model import ROUTE_STATUSES
 from app.schemas.route_schema import (
     BatchRouteSegmentPredictionRequest,
@@ -9,6 +9,7 @@ from app.schemas.route_schema import (
     RouteSegmentPredictionRequest,
 )
 from app.services.route_artifact_loader_service import RouteArtifactUnavailableError
+from app.services.route_geometry_service import ensure_route_geometry_access, route_geometry_service, route_plan_coordinates
 from app.services.route_optimizer_service import (
     cancel_route,
     dispatch_route,
@@ -30,6 +31,14 @@ from app.utils.validators import validate_choice
 
 
 router = APIRouter(prefix="/routes", tags=["Route Optimization"])
+
+
+async def require_route_geometry_user(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in ROUTE_DRIVER_VIEW_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role permissions")
+    if user.get("role") not in {"admin", "driver"} and "routes.view" not in user.get("permissions", []):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission required: routes.view")
+    return user
 
 
 @router.get("/model/status")
@@ -108,6 +117,25 @@ async def get_route_detail(
     if data is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Route not found")
     return success_response("Route plan retrieved successfully", data=data)
+
+
+@router.get("/{route_id}/geometry")
+async def get_route_geometry(
+    route_id: str,
+    current_user: dict = Depends(require_route_geometry_user),
+) -> dict:
+    route = await get_route_plan(route_id)
+    if route is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Route not found")
+    try:
+        ensure_route_geometry_access(route, current_user)
+        data = await route_geometry_service.geometry(route_plan_coordinates(route))
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    data["route_id"] = route_id
+    return success_response("Route geometry retrieved successfully", data=data)
 
 
 @router.post("/{route_id}/dispatch")

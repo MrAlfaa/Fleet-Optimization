@@ -4,7 +4,7 @@ from uuid import uuid4
 
 DELIVERY_PRIORITIES = {"low", "medium", "high", "urgent"}
 DELIVERY_STATUSES = {"pending", "assigned", "in_route", "arrived", "delivered", "failed", "cancelled", "rescheduled"}
-ROUTE_STATUSES = {"draft", "optimized", "dispatched", "in_progress", "completed", "cancelled"}
+ROUTE_STATUSES = {"draft", "optimized", "approved", "dispatched", "in_progress", "completed", "cancelled"}
 ROUTE_RUN_TYPES = {"prediction", "optimization", "manual"}
 
 
@@ -57,11 +57,13 @@ def format_optimized_stop_order(points: list[dict], route_order: list[int]) -> l
                 "sequence": sequence,
                 "point_index": point_index,
                 "type": point.get("type", "stop"),
+                "order_id": point.get("order_id"),
                 "order_code": point.get("order_code"),
                 "latitude": point["latitude"],
                 "longitude": point["longitude"],
                 "zone_id": point.get("zone_id"),
                 "priority": point.get("priority"),
+                "parcel_weight": point.get("parcel_weight"),
             }
         )
     return formatted

@@ -1,8 +1,9 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
+from pymongo.errors import DuplicateKeyError
 
 from app.core.database import get_database
 from app.models.alert_model import ALERT_COLLECTION
@@ -14,19 +15,24 @@ from app.models.route_model import (
     build_route_segment_document,
     safe_route_document,
 )
+from app.models.load_optimization_model import LOAD_OPTIMIZATION_PLANS_COLLECTION, PARCEL_CONSOLIDATIONS_COLLECTION
 from app.models.user_model import utc_now
 from app.models.vehicle_model import VEHICLE_COLLECTION
 from app.services.alert_service import create_alert
 from app.services.delivery_service import get_raw_delivery_order_by_id, update_delivery_order
-from app.services.fleet_intelligence_service import validate_vehicle_assignment
+from app.services.demand_forecasting_service import get_active_run_id
+from app.services.fleet_intelligence_service import validate_vehicle_assignment, validate_vehicle_for_planning
+from app.services.driver_device_service import validate_driver_for_assignment
 from app.services.route_prediction_service import calculate_segment_cost
 from app.services.operational_context_service import get_weather_context
 from app.services.vehicle_service import get_vehicle_by_id
+from app.services.load_optimization_service import validate_route_handoff
 from app.utils.geo_utils import haversine_distance_km
 from app.utils.object_id import serialize_mongo_list, validate_object_id
 from app.utils.pagination import build_pagination_response, calculate_skip, normalize_pagination
 from app.utils.route_utils import format_optimized_stop_order
 from app.utils.sri_lanka_zones import enrich_zone_record, source_zone_id
+from app.utils.branch_operations import apply_route_branch, delivery_batch_key
 
 
 def _db():
@@ -57,10 +63,57 @@ async def build_points_from_orders_or_stops(request_data: dict[str, Any]) -> tup
         }
     ]
     order_ids: list[Any] = []
+    batch_key: tuple[str, str] | None = None
+    approved_load: dict[str, Any] | None = None
+    if request_data.get("load_plan_id") and request_data.get("load_id"):
+        plan = await _db()[LOAD_OPTIMIZATION_PLANS_COLLECTION].find_one({"plan_id": request_data["load_plan_id"]})
+        if plan is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Load plan not found")
+        try:
+            approved_load = validate_route_handoff(
+                plan,
+                str(request_data["load_id"]),
+                str(request_data["vehicle_id"]),
+                [str(value) for value in request_data.get("delivery_order_ids") or []],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     for order_id in request_data.get("delivery_order_ids") or []:
         order = await get_raw_delivery_order_by_id(order_id)
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Delivery order not found: {order_id}")
+        load_order_is_valid = bool(
+            approved_load
+            and order.get("delivery_status") == "pending"
+            and order.get("load_planning_status") == "vehicle_assigned"
+            and order.get("active_load_plan_id") == request_data.get("load_plan_id")
+            and order.get("active_load_id") == request_data.get("load_id")
+            and str(order.get("assigned_vehicle_id") or "") == str(request_data.get("vehicle_id"))
+            and not order.get("assigned_driver_id")
+        )
+        legacy_order_is_valid = bool(
+            not approved_load
+            and order.get("delivery_status") == "pending"
+            and not order.get("assigned_vehicle_id")
+            and not order.get("assigned_driver_id")
+        )
+        if not load_order_is_valid and not legacy_order_is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Delivery order {order.get('order_code', order_id)} is not available for route planning",
+            )
+        order_batch_key = delivery_batch_key(order)
+        if order_batch_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Delivery order {order.get('order_code', order_id)} has no valid delivery date and period",
+            )
+        if batch_key is not None and order_batch_key != batch_key:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="All selected parcels must use the same delivery date and period",
+            )
+        batch_key = order_batch_key
         order_ids.append(order["_id"])
         points.append(
             {
@@ -71,8 +124,12 @@ async def build_points_from_orders_or_stops(request_data: dict[str, Any]) -> tup
                 "longitude": order["drop_longitude"],
                 "zone_id": order.get("zone_id"),
                 "priority": order.get("priority"),
+                "parcel_weight": float(order.get("parcel_weight") or 0),
             }
         )
+
+    if batch_key is not None:
+        request_data["delivery_date"], request_data["delivery_period"] = batch_key
 
     for stop in request_data.get("delivery_stops") or []:
         points.append(
@@ -91,20 +148,33 @@ async def build_points_from_orders_or_stops(request_data: dict[str, Any]) -> tup
     return points, order_ids
 
 
-async def _get_demand_context(points: list[dict[str, Any]]) -> dict[str, Any]:
+async def _get_demand_context(points: list[dict[str, Any]], delivery_date: str | None) -> dict[str, Any]:
     zones = sorted({point.get("zone_id") for point in points if point.get("zone_id")})
     if not zones:
         return {"zones": [], "warnings": []}
     source_zones = sorted({source_zone_id(str(zone)) for zone in zones})
+    active_run_id = await get_active_run_id()
+    if active_run_id is None:
+        return {"zones": zones, "recommendations": [], "warnings": ["No active demand forecast is available"]}
+    query: dict[str, Any] = {"model_run_id": active_run_id, "zone_id": {"$in": source_zones}}
+    if delivery_date:
+        forecast_start = datetime.fromisoformat(delivery_date).replace(tzinfo=timezone.utc)
+        query["forecast_date"] = {"$gte": forecast_start, "$lt": forecast_start + timedelta(days=1)}
     recommendations = _db()["fleet_planning_recommendations"]
-    cursor = recommendations.find({"zone_id": {"$in": source_zones}}).sort("forecast_date", 1).limit(25)
+    cursor = recommendations.find(query).sort("forecast_date", 1).limit(25)
     rows = [enrich_zone_record(row) for row in await cursor.to_list(length=25)]
     warnings = [
         f"{row['demand_level']} demand expected in {row['zone_display_name']}"
         for row in rows
         if row.get("demand_level") in ["high", "very_high"]
     ]
-    return {"zones": zones, "recommendations": serialize_mongo_list(rows), "warnings": warnings}
+    return {
+        "zones": zones,
+        "forecast_date": delivery_date,
+        "model_run_id": str(active_run_id),
+        "recommendations": serialize_mongo_list(rows),
+        "warnings": warnings,
+    }
 
 
 async def _get_maintenance_context(vehicle_id: str | None) -> dict[str, Any]:
@@ -121,7 +191,12 @@ async def _get_maintenance_context(vehicle_id: str | None) -> dict[str, Any]:
     return {"vehicle_id": vehicle_id, "health_status": vehicle.get("health_status"), "warnings": warnings}
 
 
-def _segment_input(origin: dict[str, Any], destination: dict[str, Any], priority: str | None = None) -> dict[str, Any]:
+def _segment_input(
+    origin: dict[str, Any],
+    destination: dict[str, Any],
+    route_context: dict[str, Any],
+    priority: str | None = None,
+) -> dict[str, Any]:
     return {
         "pickup_latitude": origin["latitude"],
         "pickup_longitude": origin["longitude"],
@@ -129,14 +204,24 @@ def _segment_input(origin: dict[str, Any], destination: dict[str, Any], priority
         "drop_longitude": destination["longitude"],
         "priority": priority or destination.get("priority"),
         "weather": destination.get("weather_label") or "Cloudy",
-        "traffic": "Medium",
-        "vehicle_type": "electric_van",
-        "area": "urban",
-        "category": "parcel",
+        "traffic_level": route_context.get("traffic_level", "High"),
+        "vehicle_category": route_context.get("vehicle_category", "van"),
+        "fuel_type": route_context.get("fuel_type", "electric"),
+        "area_type": "urban",
+        "road_class": destination.get("road_class") or "primary",
+        "origin_zone_id": source_zone_id(str(origin.get("zone_id") or "colombo_central")),
+        "destination_zone_id": source_zone_id(str(destination.get("zone_id") or "colombo_central")),
+        "order_date": route_context.get("delivery_date"),
+        "order_time": "09:00" if route_context.get("delivery_period") == "first_half" else "14:00",
     }
 
 
-def build_ml_cost_matrix(points: list[dict[str, Any]], use_ml_cost: bool) -> tuple[list[list[int]], list[list[dict[str, Any]]], bool]:
+def build_ml_cost_matrix(
+    points: list[dict[str, Any]],
+    use_ml_cost: bool,
+    route_context: dict[str, Any] | None = None,
+) -> tuple[list[list[int]], list[list[dict[str, Any]]], bool]:
+    route_context = route_context or {}
     matrix: list[list[int]] = []
     predictions: list[list[dict[str, Any]]] = []
     used_ml = True
@@ -157,7 +242,10 @@ def build_ml_cost_matrix(points: list[dict[str, Any]], use_ml_cost: bool) -> tup
                     }
                 )
                 continue
-            prediction, segment_used_ml = calculate_segment_cost(_segment_input(origin, destination), use_ml_cost=use_ml_cost)
+            prediction, segment_used_ml = calculate_segment_cost(
+                _segment_input(origin, destination, route_context),
+                use_ml_cost=use_ml_cost,
+            )
             used_ml = used_ml and segment_used_ml
             row.append(max(int(round(prediction["route_cost_score"] * 100)), 1))
             prediction_row.append(prediction)
@@ -258,11 +346,49 @@ async def save_route_plan(
         segment_documents.append(build_route_segment_document({**segment, "route_plan_id": route_id}))
     if segment_documents:
         await get_route_segment_collection().insert_many(segment_documents)
+    if request_data.get("load_plan_id") and request_data.get("load_id"):
+        now = utc_now()
+        await _db()[LOAD_OPTIMIZATION_PLANS_COLLECTION].update_one(
+            {
+                "plan_id": request_data["load_plan_id"],
+                "status": "approved",
+                "selected_option.loads.load_id": request_data["load_id"],
+            },
+            {"$set": {
+                "selected_option.loads.$.route_id": str(route_id),
+                "selected_option.loads.$.routed_at": now,
+                "updated_at": now,
+            }},
+        )
+        await _db()[DELIVERY_COLLECTION].update_many(
+            {
+                "active_load_plan_id": request_data["load_plan_id"],
+                "active_load_id": request_data["load_id"],
+                "load_planning_status": "vehicle_assigned",
+            },
+            {"$set": {"load_planning_status": "routed", "updated_at": now}},
+        )
+        load_plan = await _db()[LOAD_OPTIMIZATION_PLANS_COLLECTION].find_one(
+            {"plan_id": request_data["load_plan_id"]},
+            {"consolidation_id": 1, "selected_option.loads.route_id": 1},
+        )
+        loads = ((load_plan or {}).get("selected_option") or {}).get("loads") or []
+        if load_plan and load_plan.get("consolidation_id") and loads and all(item.get("route_id") for item in loads):
+            await _db()[PARCEL_CONSOLIDATIONS_COLLECTION].update_one(
+                {"consolidation_id": load_plan.get("consolidation_id")},
+                {"$set": {"status": "routed", "updated_at": now}},
+            )
     return safe_route_document(await get_route_plan_collection().find_one({"_id": route_id}))
 
 
 async def optimize_route(request_data: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    request_data = apply_route_branch(request_data)
     points, order_ids = await build_points_from_orders_or_stops(request_data)
+    vehicle_validation = await validate_vehicle_for_planning(request_data["vehicle_id"])
+    if not vehicle_validation["eligible"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="; ".join(vehicle_validation["blocking_reasons"]))
+    if request_data.get("driver_id"):
+        await validate_driver_for_assignment(request_data["driver_id"])
     weather_context = {"available": False, "source": "open_meteo", "warnings": [], "segments_evaluated": 0}
     if request_data.get("include_weather_context", True):
         weather_rows = await asyncio.gather(
@@ -276,13 +402,29 @@ async def optimize_route(request_data: dict[str, Any], current_user: dict[str, A
             "warnings": list(dict.fromkeys(row["warning"] for row in weather_rows if row.get("warning"))),
             "segments_evaluated": max(len(points) - 1, 0),
         }
-    demand_context = await _get_demand_context(points) if request_data.get("include_demand_context", True) else None
+    demand_context = (
+        await _get_demand_context(points, request_data.get("delivery_date"))
+        if request_data.get("include_demand_context", True)
+        else None
+    )
     maintenance_context = (
         await _get_maintenance_context(request_data.get("vehicle_id"))
         if request_data.get("include_maintenance_context", True)
         else None
     )
-    cost_matrix, prediction_matrix, used_ml = build_ml_cost_matrix(points, request_data.get("use_ml_cost", True))
+    vehicle = vehicle_validation["vehicle"]
+    route_context = {
+        "delivery_date": request_data.get("delivery_date"),
+        "delivery_period": request_data.get("delivery_period"),
+        "traffic_level": "High" if request_data.get("delivery_period") in {"first_half", "second_half"} else "Medium",
+        "vehicle_category": (vehicle or {}).get("vehicle_category") or (vehicle or {}).get("vehicle_type") or "van",
+        "fuel_type": (vehicle or {}).get("fuel_type") or "electric",
+    }
+    cost_matrix, prediction_matrix, used_ml = build_ml_cost_matrix(
+        points,
+        request_data.get("use_ml_cost", True),
+        route_context,
+    )
     route_order = solve_single_vehicle_route(cost_matrix)
 
     segments: list[dict[str, Any]] = []
@@ -318,7 +460,7 @@ async def optimize_route(request_data: dict[str, Any], current_user: dict[str, A
         warnings.extend(maintenance_context.get("warnings", []))
     warnings.extend(weather_context.get("warnings", []))
 
-    optimization_method = "ML-assisted OR-Tools single vehicle" if used_ml else "Distance-based OR-Tools single vehicle"
+    optimization_method = "Predictive ETA OR-Tools single vehicle" if used_ml else "Distance-based OR-Tools single vehicle"
     result = {
         "route_id": None,
         "optimized_stop_order": format_optimized_stop_order(points, route_order),
@@ -404,6 +546,8 @@ async def dispatch_route(route_id: str, dispatch_data: dict[str, Any], current_u
     route = await get_route_plan_collection().find_one({"_id": object_id})
     if route is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Route not found")
+    if route.get("route_set_id") and route.get("status") != "approved":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approve the complete route set before dispatch")
 
     final_vehicle_id = dispatch_data.get("vehicle_id") or (str(route["vehicle_id"]) if route.get("vehicle_id") else None)
     if not final_vehicle_id:
@@ -428,7 +572,24 @@ async def dispatch_route(route_id: str, dispatch_data: dict[str, Any], current_u
         update["vehicle_id"] = validate_object_id(dispatch_data["vehicle_id"])
     if dispatch_data.get("driver_id"):
         update["driver_id"] = validate_object_id(dispatch_data["driver_id"])
-    await get_route_plan_collection().update_one({"_id": object_id}, {"$set": update})
+    try:
+        dispatch_result = await get_route_plan_collection().update_one(
+            {
+                "_id": object_id,
+                "status": "approved" if route.get("route_set_id") else {"$nin": ["dispatched", "in_progress", "completed", "cancelled"]},
+            },
+            {"$set": update},
+        )
+    except DuplicateKeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Selected vehicle or driver is already assigned to another active route",
+        ) from exc
+    if dispatch_result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This route has already been dispatched or closed",
+        )
 
     for order_id in route.get("delivery_order_ids", []):
         vehicle_value = update.get("vehicle_id") or route.get("vehicle_id")
@@ -463,10 +624,20 @@ async def cancel_route(route_id: str, current_user: dict[str, Any]) -> dict[str,
     if result.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Route not found")
     if route.get("delivery_order_ids"):
-        await _db()[DELIVERY_COLLECTION].update_many(
-            {"_id": {"$in": route["delivery_order_ids"]}, "delivery_status": {"$in": ["assigned", "in_route"]}},
-            {"$set": {"delivery_status": "pending", "assigned_vehicle_id": None, "assigned_driver_id": None, "updated_at": utc_now()}},
-        )
+        if route.get("load_plan_id") and route.get("load_id"):
+            await _db()[DELIVERY_COLLECTION].update_many(
+                {"_id": {"$in": route["delivery_order_ids"]}, "active_load_plan_id": route["load_plan_id"], "active_load_id": route["load_id"]},
+                {"$set": {"delivery_status": "pending", "load_planning_status": "vehicle_assigned", "assigned_driver_id": None, "updated_at": utc_now()}},
+            )
+            await _db()[LOAD_OPTIMIZATION_PLANS_COLLECTION].update_one(
+                {"plan_id": route["load_plan_id"], "selected_option.loads.load_id": route["load_id"]},
+                {"$set": {"selected_option.loads.$.route_id": None, "selected_option.loads.$.routed_at": None, "updated_at": utc_now()}},
+            )
+        else:
+            await _db()[DELIVERY_COLLECTION].update_many(
+                {"_id": {"$in": route["delivery_order_ids"]}, "delivery_status": {"$in": ["assigned", "in_route"]}},
+                {"$set": {"delivery_status": "pending", "assigned_vehicle_id": None, "assigned_driver_id": None, "updated_at": utc_now()}},
+            )
     return await get_route_plan(route_id)
 
 

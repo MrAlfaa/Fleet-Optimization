@@ -1,0 +1,482 @@
+{
+  "model_version": "fleetopt-sensor-free-pm-v1",
+  "training_data_version": "fleetopt-sensor-free-failure-v2",
+  "generated_at": "2026-08-23T18:06:32.824606+00:00",
+  "dataset": {
+    "rows": 500000,
+    "vehicles": 10000,
+    "date_start": "2022-01-11T09:45:16+00:00",
+    "date_end": "2026-12-31T13:09:21+00:00",
+    "fuel_types": {
+      "electric": 172100,
+      "diesel": 155400,
+      "hybrid": 88550,
+      "petrol": 83950
+    },
+    "failure_30d_prevalence": 0.03202,
+    "failure_2000km_prevalence": 0.015604,
+    "event_observed_rate": 0.46002
+  },
+  "splits": {
+    "train": {
+      "rows": 350000,
+      "vehicles": 7000,
+      "failure_30d_rate": 0.03232857142857143
+    },
+    "calibration": {
+      "rows": 50000,
+      "vehicles": 1000,
+      "failure_30d_rate": 0.03212
+    },
+    "threshold": {
+      "rows": 50000,
+      "vehicles": 1000,
+      "failure_30d_rate": 0.0313
+    },
+    "test": {
+      "rows": 50000,
+      "vehicles": 1000,
+      "failure_30d_rate": 0.03048
+    }
+  },
+  "global_failure_models": {
+    "failure_30_days": {
+      "prevalence": 0.03048,
+      "threshold": 0.12448132780082988,
+      "accuracy": 0.928,
+      "balanced_accuracy": 0.805572267923148,
+      "precision": 0.24891146589259797,
+      "recall": 0.6751968503937008,
+      "f1": 0.3637327677624602,
+      "f2": 0.5029325513196481,
+      "roc_auc": 0.9453065391126794,
+      "average_precision": 0.31963522432388425,
+      "brier_score": 0.023684234567376224,
+      "confusion_matrix": [
+        [
+          45371,
+          3105
+        ],
+        [
+          495,
+          1029
+        ]
+      ]
+    },
+    "failure_2000_km": {
+      "prevalence": 0.01498,
+      "threshold": 0.07312925170068027,
+      "accuracy": 0.92132,
+      "balanced_accuracy": 0.7976827725794349,
+      "precision": 0.11983767008832658,
+      "recall": 0.6702269692923899,
+      "f1": 0.2033211826650466,
+      "f2": 0.34933890048712596,
+      "roc_auc": 0.9359026657242719,
+      "average_precision": 0.14866827414635822,
+      "brier_score": 0.013394954451627528,
+      "confusion_matrix": [
+        [
+          45564,
+          3687
+        ],
+        [
+          247,
+          502
+        ]
+      ]
+    }
+  },
+  "system_risk_models": {
+    "battery_system": {
+      "prevalence": 0.0007129455909943715,
+      "threshold": 0.0189328743545611,
+      "accuracy": 0.9644277673545967,
+      "balanced_accuracy": 0.9822011940971049,
+      "precision": 0.01964839710444674,
+      "recall": 1.0,
+      "f1": 0.038539553752535496,
+      "f2": 0.09108341323106424,
+      "roc_auc": 0.9822011940971049,
+      "average_precision": 0.01964839710444674,
+      "brier_score": 0.0006994081561848905,
+      "confusion_matrix": [
+        [
+          25683,
+          948
+        ],
+        [
+          0,
+          19
+        ]
+      ]
+    },
+    "braking": {
+      "prevalence": 0.00818,
+      "threshold": 0.06578947368421052,
+      "accuracy": 0.96436,
+      "balanced_accuracy": 0.7916844383635153,
+      "precision": 0.1342567927543953,
+      "recall": 0.6161369193154034,
+      "f1": 0.2204724409448819,
+      "f2": 0.35866780529462,
+      "roc_auc": 0.9627500139404386,
+      "average_precision": 0.17289070489201214,
+      "brier_score": 0.007238881610155519,
+      "confusion_matrix": [
+        [
+          47966,
+          1625
+        ],
+        [
+          157,
+          252
+        ]
+      ]
+    },
+    "charging_system": {
+      "prevalence": 0.002485549132947977,
+      "threshold": 0.04739336492890995,
+      "accuracy": 0.9858381502890173,
+      "balanced_accuracy": 0.7377249003100865,
+      "precision": 0.0860655737704918,
+      "recall": 0.4883720930232558,
+      "f1": 0.14634146341463414,
+      "f2": 0.25240384615384615,
+      "roc_auc": 0.9732518384854949,
+      "average_precision": 0.08455229553260477,
+      "brier_score": 0.0023666105724061068,
+      "confusion_matrix": [
+        [
+          17034,
+          223
+        ],
+        [
+          22,
+          21
+        ]
+      ]
+    },
+    "cooling_system": {
+      "prevalence": 0.0028134556574923547,
+      "threshold": 0.018711018711018712,
+      "accuracy": 0.9652905198776759,
+      "balanced_accuracy": 0.8687878674745061,
+      "precision": 0.059915611814345994,
+      "recall": 0.7717391304347826,
+      "f1": 0.11119812059514488,
+      "f2": 0.22858982614294912,
+      "roc_auc": 0.9759616538486154,
+      "average_precision": 0.06675849175669242,
+      "brier_score": 0.0027173524021395514,
+      "confusion_matrix": [
+        [
+          31494,
+          1114
+        ],
+        [
+          21,
+          71
+        ]
+      ]
+    },
+    "electrical": {
+      "prevalence": 0.00178,
+      "threshold": 0.03970223325062035,
+      "accuracy": 0.98208,
+      "balanced_accuracy": 0.8620409497444778,
+      "precision": 0.07028753993610223,
+      "recall": 0.7415730337078652,
+      "f1": 0.12840466926070038,
+      "f2": 0.2548262548262548,
+      "roc_auc": 0.986688552815022,
+      "average_precision": 0.10247100396971186,
+      "brier_score": 0.0016548224703613508,
+      "confusion_matrix": [
+        [
+          49038,
+          873
+        ],
+        [
+          23,
+          66
+        ]
+      ]
+    },
+    "engine": {
+      "prevalence": 0.001620795107033639,
+      "threshold": 0.06170212765957447,
+      "accuracy": 0.9856574923547401,
+      "balanced_accuracy": 0.7856068719076733,
+      "precision": 0.06485355648535565,
+      "recall": 0.5849056603773585,
+      "f1": 0.1167608286252354,
+      "f2": 0.2246376811594203,
+      "roc_auc": 0.9751923231410208,
+      "average_precision": 0.05515950614557917,
+      "brier_score": 0.001553936257289904,
+      "confusion_matrix": [
+        [
+          32200,
+          447
+        ],
+        [
+          22,
+          31
+        ]
+      ]
+    },
+    "exhaust_dpf": {
+      "prevalence": 0.0037241379310344828,
+      "threshold": 0.07246376811594203,
+      "accuracy": 0.976,
+      "balanced_accuracy": 0.7942375436491456,
+      "precision": 0.09166666666666666,
+      "recall": 0.6111111111111112,
+      "f1": 0.15942028985507245,
+      "f2": 0.2864583333333333,
+      "roc_auc": 0.9712101517272499,
+      "average_precision": 0.0783820975495725,
+      "brier_score": 0.0034840449992753274,
+      "confusion_matrix": [
+        [
+          14119,
+          327
+        ],
+        [
+          21,
+          33
+        ]
+      ]
+    },
+    "fuel_system": {
+      "prevalence": 0.0017125382262996943,
+      "threshold": 0.05263157894736842,
+      "accuracy": 0.9890214067278288,
+      "balanced_accuracy": 0.744930155618184,
+      "precision": 0.07799442896935933,
+      "recall": 0.5,
+      "f1": 0.13493975903614458,
+      "f2": 0.24013722126929674,
+      "roc_auc": 0.9562512581616398,
+      "average_precision": 0.07734467048539269,
+      "brier_score": 0.001614505700219498,
+      "confusion_matrix": [
+        [
+          32313,
+          331
+        ],
+        [
+          28,
+          28
+        ]
+      ]
+    },
+    "ignition": {
+      "prevalence": 0.0023728813559322033,
+      "threshold": 0.0397456279809221,
+      "accuracy": 0.9299435028248587,
+      "balanced_accuracy": 0.964888435836448,
+      "precision": 0.0327613104524181,
+      "recall": 1.0,
+      "f1": 0.0634441087613293,
+      "f2": 0.14482758620689656,
+      "roc_auc": 0.964888435836448,
+      "average_precision": 0.0327613104524181,
+      "brier_score": 0.002300967733731446,
+      "confusion_matrix": [
+        [
+          8209,
+          620
+        ],
+        [
+          0,
+          21
+        ]
+      ]
+    },
+    "motor_drivetrain": {
+      "prevalence": 0.002176360225140713,
+      "threshold": 0.029242876526458614,
+      "accuracy": 0.974859287054409,
+      "balanced_accuracy": 0.8669758081248184,
+      "precision": 0.06285714285714286,
+      "recall": 0.7586206896551724,
+      "f1": 0.11609498680738786,
+      "f2": 0.23605150214592274,
+      "roc_auc": 0.9810323431470186,
+      "average_precision": 0.06111062847805722,
+      "brier_score": 0.002080786704405208,
+      "confusion_matrix": [
+        [
+          25936,
+          656
+        ],
+        [
+          14,
+          44
+        ]
+      ]
+    },
+    "steering": {
+      "prevalence": 0.00082,
+      "threshold": 0.003968253968253968,
+      "accuracy": 0.95962,
+      "balanced_accuracy": 0.9432380893796328,
+      "precision": 0.018500486854917234,
+      "recall": 0.926829268292683,
+      "f1": 0.036276849642004776,
+      "f2": 0.08566275924256087,
+      "roc_auc": 0.9506055941481771,
+      "average_precision": 0.034349975507268385,
+      "brier_score": 0.0007988147545922853,
+      "confusion_matrix": [
+        [
+          47943,
+          2016
+        ],
+        [
+          3,
+          38
+        ]
+      ]
+    },
+    "suspension": {
+      "prevalence": 0.00118,
+      "threshold": 0.03899721448467967,
+      "accuracy": 0.98266,
+      "balanced_accuracy": 0.8728158549121863,
+      "precision": 0.05011135857461024,
+      "recall": 0.7627118644067796,
+      "f1": 0.09404388714733543,
+      "f2": 0.1984126984126984,
+      "roc_auc": 0.9858765546734978,
+      "average_precision": 0.06294997981469239,
+      "brier_score": 0.0011800646899304272,
+      "confusion_matrix": [
+        [
+          49088,
+          853
+        ],
+        [
+          14,
+          45
+        ]
+      ]
+    },
+    "thermal_system": {
+      "prevalence": 0.0024277456647398845,
+      "threshold": 0.0471311475409836,
+      "accuracy": 0.96,
+      "balanced_accuracy": 0.9324481675854952,
+      "precision": 0.05234159779614325,
+      "recall": 0.9047619047619048,
+      "f1": 0.09895833333333333,
+      "f2": 0.21252796420581654,
+      "roc_auc": 0.9776197650227086,
+      "average_precision": 0.05179619537403818,
+      "brier_score": 0.0023114706517003663,
+      "confusion_matrix": [
+        [
+          16570,
+          688
+        ],
+        [
+          4,
+          38
+        ]
+      ]
+    },
+    "tires": {
+      "prevalence": 0.00976,
+      "threshold": 0.08443271767810026,
+      "accuracy": 0.95864,
+      "balanced_accuracy": 0.8228844671535167,
+      "precision": 0.148576512455516,
+      "recall": 0.6844262295081968,
+      "f1": 0.24415204678362573,
+      "f2": 0.3976190476190476,
+      "roc_auc": 0.9576868184298425,
+      "average_precision": 0.19073544828672315,
+      "brier_score": 0.008527459823785468,
+      "confusion_matrix": [
+        [
+          47598,
+          1914
+        ],
+        [
+          154,
+          334
+        ]
+      ]
+    }
+  },
+  "ranked_system_summary": {
+    "evaluated_global_failure_rows": 1524,
+    "top_system_accuracy": 0.571522309711286,
+    "interpretation": "Secondary ranking diagnostic; per-system calibrated risks are the deployed output."
+  },
+  "survival_models": {
+    "days": {
+      "concordance_index": 0.9265198957009918,
+      "observed_events": 22287,
+      "observed_mae": 313.15863454889245,
+      "observed_rmse": 998.2132223565168,
+      "constant_median_baseline_mae": 342.4349053484093
+    },
+    "km": {
+      "concordance_index": 0.9035498969916508,
+      "observed_events": 22287,
+      "observed_mae": 31527.882267021247,
+      "observed_rmse": 79848.59872375522,
+      "constant_median_baseline_mae": 37164.27796921972
+    }
+  },
+  "planning_intervals": {
+    "days": {
+      "lower_multiplier": 0.333085584057343,
+      "upper_multiplier": 1.68209346221142,
+      "coverage_target": 0.8
+    },
+    "km": {
+      "lower_multiplier": 0.33138434746676493,
+      "upper_multiplier": 1.69180424340282,
+      "coverage_target": 0.8
+    }
+  },
+  "quality_gate": {
+    "global_failure_models": {
+      "failure_30_days": {
+        "roc_auc_pass": true,
+        "average_precision_pass": true,
+        "recall_pass": true,
+        "pass": true
+      },
+      "failure_2000_km": {
+        "roc_auc_pass": true,
+        "average_precision_pass": true,
+        "recall_pass": true,
+        "pass": true
+      }
+    },
+    "system_risk_models": {
+      "passing_systems": 14,
+      "required_systems": 12,
+      "pass": true
+    },
+    "survival_models": {
+      "days": {
+        "concordance_pass": true,
+        "mae_baseline_pass": true,
+        "pass": true
+      },
+      "km": {
+        "concordance_pass": true,
+        "mae_baseline_pass": true,
+        "pass": true
+      }
+    },
+    "bundle_pass": true
+  },
+  "validation_scope": "synthetic_research_mvp"
+}

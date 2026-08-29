@@ -7,45 +7,56 @@ import '../../models/driver_models.dart';
 Future<PreTripInspection?> showPreTripInspectionSheet(
   BuildContext context, {
   required double initialMileage,
+  required AssignedVehicle vehicle,
 }) {
   return showModalBottomSheet<PreTripInspection>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _PreTripInspectionSheet(initialMileage: initialMileage),
+    builder: (_) => _PreTripInspectionSheet(
+      initialMileage: initialMileage,
+      vehicle: vehicle,
+    ),
   );
 }
 
 Future<PostTripInspection?> showPostTripInspectionSheet(
   BuildContext context, {
   required double initialMileage,
+  required AssignedVehicle vehicle,
 }) {
   return showModalBottomSheet<PostTripInspection>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _PostTripInspectionSheet(initialMileage: initialMileage),
+    builder: (_) => _PostTripInspectionSheet(
+      initialMileage: initialMileage,
+      vehicle: vehicle,
+    ),
   );
 }
 
 const _tireOptions = {
   'normal': 'Normal - no visible concern',
-  'worn': 'Worn - monitor condition',
-  'damaged': 'Damaged - inspection required',
+  'warning': 'Warning - wear or pressure concern',
+  'critical': 'Critical - damaged or unsafe',
 };
 const _brakeOptions = {
   'normal': 'Normal response',
-  'noisy': 'Unusual brake noise',
-  'reduced_response': 'Reduced braking response',
-  'warning_light': 'Brake warning light',
+  'warning': 'Warning - noise or reduced response',
+  'critical': 'Critical - unsafe braking response',
 };
-const _chargingOptions = {
-  'normal': 'Charging normally',
-  'intermittent': 'Intermittent charging',
-  'not_charging': 'Not charging',
-  'port_damaged': 'Charging port damaged',
+const _conditionOptions = {
+  'normal': 'Normal - no concern observed',
+  'warning': 'Warning - monitor and report',
+  'critical': 'Critical - unsafe condition',
+};
+const _energyIssueOptions = {
+  'none': 'No issue observed',
+  'warning': 'Intermittent or minor concern',
+  'critical': 'Failed or unsafe condition',
 };
 const _damageOptions = {
   'none': 'No visible damage',
@@ -61,16 +72,6 @@ const _observationOptions = {
   'none': 'None',
   'mild': 'Mild',
   'severe': 'Severe',
-};
-const _changeOptions = {
-  'none': 'No change',
-  'minor': 'Minor change',
-  'significant': 'Significant change',
-};
-const _chargingProblemOptions = {
-  'none': 'No charging problem',
-  'intermittent': 'Intermittent problem',
-  'failed': 'Charging failed',
 };
 
 class _SheetFrame extends StatelessWidget {
@@ -158,39 +159,53 @@ class _SheetFrame extends StatelessWidget {
           Expanded(
             child: Form(
               key: formKey,
-              child: ListView(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  18,
-                  20,
-                  MediaQuery.viewInsetsOf(context).bottom + 24,
-                ),
+              child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4F7FB),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'Select the closest observation. Critical selections may block this vehicle and notify the fleet manager.',
-                      style: TextStyle(
-                        color: AppColors.muted,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  Expanded(
+                    child: ListView(
+                      key: const ValueKey('inspection-form-scroll'),
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF4F7FB),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'Select the closest observation. Critical selections may block this vehicle and notify the fleet manager.',
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ...children,
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  ...children,
-                  const SizedBox(height: 18),
-                  FilledButton.icon(
-                    onPressed: onSubmit,
-                    icon: const Icon(Icons.verified_outlined),
-                    label: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 14),
-                      child: Text(
-                        'Submit inspection',
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                  DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      border: Border(top: BorderSide(color: Color(0xFFE4EAF2))),
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      minimum: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: onSubmit,
+                          icon: const Icon(Icons.verified_outlined),
+                          label: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 14),
+                            child: Text(
+                              'Submit inspection',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -205,8 +220,12 @@ class _SheetFrame extends StatelessWidget {
 }
 
 class _PreTripInspectionSheet extends StatefulWidget {
-  const _PreTripInspectionSheet({required this.initialMileage});
+  const _PreTripInspectionSheet({
+    required this.initialMileage,
+    required this.vehicle,
+  });
   final double initialMileage;
+  final AssignedVehicle vehicle;
 
   @override
   State<_PreTripInspectionSheet> createState() =>
@@ -216,11 +235,12 @@ class _PreTripInspectionSheet extends StatefulWidget {
 class _PreTripInspectionSheetState extends State<_PreTripInspectionSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _odometer;
-  final _soc = TextEditingController(text: '80');
+  final _soc = TextEditingController();
   final _notes = TextEditingController();
   String tire = 'normal',
       brake = 'normal',
-      charging = 'normal',
+      powertrain = 'normal',
+      energyIssue = 'none',
       damage = 'none';
   String warning = 'none', noise = 'none', vibration = 'none';
 
@@ -253,7 +273,14 @@ class _PreTripInspectionSheetState extends State<_PreTripInspectionSheet> {
           'Starting odometer (km)',
           min: widget.initialMileage,
         ),
-        _numberField(_soc, 'Battery charge - SoC (%)', min: 0, max: 100),
+        if (widget.vehicle.supportsBatteryContext)
+          _numberField(
+            _soc,
+            'Battery charge - SoC (%) (optional)',
+            min: 0,
+            max: 100,
+            required: false,
+          ),
         _dropdown(
           'Tire condition',
           tire,
@@ -267,10 +294,16 @@ class _PreTripInspectionSheetState extends State<_PreTripInspectionSheet> {
           (value) => setState(() => brake = value),
         ),
         _dropdown(
-          'Charging system',
-          charging,
-          _chargingOptions,
-          (value) => setState(() => charging = value),
+          widget.vehicle.powertrainConditionLabel,
+          powertrain,
+          _conditionOptions,
+          (value) => setState(() => powertrain = value),
+        ),
+        _dropdown(
+          widget.vehicle.energyIssueLabel,
+          energyIssue,
+          _energyIssueOptions,
+          (value) => setState(() => energyIssue = value),
         ),
         _dropdown(
           'Visible vehicle damage',
@@ -307,14 +340,17 @@ class _PreTripInspectionSheetState extends State<_PreTripInspectionSheet> {
       context,
       PreTripInspection(
         odometer: double.parse(_odometer.text),
-        batterySoc: double.parse(_soc.text),
+        batterySoc: widget.vehicle.supportsBatteryContext
+            ? double.tryParse(_soc.text)
+            : null,
         tireCondition: tire,
         brakeCondition: brake,
-        chargingCondition: charging,
+        powertrainCondition: powertrain,
+        chargingOrFuelIssue: energyIssue,
         vehicleDamage: damage,
         dashboardWarning: warning,
         unusualNoise: noise,
-        unusualVibration: vibration,
+        vibrationLevel: vibration,
         notes: _notes.text,
       ),
     );
@@ -322,8 +358,12 @@ class _PreTripInspectionSheetState extends State<_PreTripInspectionSheet> {
 }
 
 class _PostTripInspectionSheet extends StatefulWidget {
-  const _PostTripInspectionSheet({required this.initialMileage});
+  const _PostTripInspectionSheet({
+    required this.initialMileage,
+    required this.vehicle,
+  });
   final double initialMileage;
+  final AssignedVehicle vehicle;
 
   @override
   State<_PostTripInspectionSheet> createState() =>
@@ -333,9 +373,13 @@ class _PostTripInspectionSheet extends StatefulWidget {
 class _PostTripInspectionSheetState extends State<_PostTripInspectionSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _odometer;
-  final _soc = TextEditingController(text: '50');
+  final _soc = TextEditingController();
   final _notes = TextEditingController();
-  String tire = 'none', brake = 'none', charging = 'none', damage = 'none';
+  String tire = 'normal',
+      brake = 'normal',
+      powertrain = 'normal',
+      energyIssue = 'none',
+      damage = 'none';
   String warning = 'none', noise = 'none', vibration = 'none';
 
   @override
@@ -367,24 +411,37 @@ class _PostTripInspectionSheetState extends State<_PostTripInspectionSheet> {
           'Ending odometer (km)',
           min: widget.initialMileage,
         ),
-        _numberField(_soc, 'Ending battery charge - SoC (%)', min: 0, max: 100),
+        if (widget.vehicle.supportsBatteryContext)
+          _numberField(
+            _soc,
+            'Ending battery charge - SoC (%) (optional)',
+            min: 0,
+            max: 100,
+            required: false,
+          ),
         _dropdown(
-          'Tire condition changed?',
+          'Tire condition',
           tire,
-          _changeOptions,
+          _conditionOptions,
           (value) => setState(() => tire = value),
         ),
         _dropdown(
-          'Brake condition changed?',
+          'Brake condition',
           brake,
-          _changeOptions,
+          _conditionOptions,
           (value) => setState(() => brake = value),
         ),
         _dropdown(
-          'Charging problem?',
-          charging,
-          _chargingProblemOptions,
-          (value) => setState(() => charging = value),
+          widget.vehicle.powertrainConditionLabel,
+          powertrain,
+          _conditionOptions,
+          (value) => setState(() => powertrain = value),
+        ),
+        _dropdown(
+          widget.vehicle.energyIssueLabel,
+          energyIssue,
+          _energyIssueOptions,
+          (value) => setState(() => energyIssue = value),
         ),
         _dropdown(
           'Vehicle damage?',
@@ -421,14 +478,17 @@ class _PostTripInspectionSheetState extends State<_PostTripInspectionSheet> {
       context,
       PostTripInspection(
         endingOdometer: double.parse(_odometer.text),
-        endingBatterySoc: double.parse(_soc.text),
-        tireConditionChange: tire,
-        brakeConditionChange: brake,
-        chargingProblem: charging,
+        endingBatterySoc: widget.vehicle.supportsBatteryContext
+            ? double.tryParse(_soc.text)
+            : null,
+        tireCondition: tire,
+        brakeCondition: brake,
+        powertrainCondition: powertrain,
+        chargingOrFuelIssue: energyIssue,
         vehicleDamage: damage,
         dashboardWarning: warning,
         unusualNoise: noise,
-        unusualVibration: vibration,
+        vibrationLevel: vibration,
         notes: _notes.text,
       ),
     );
@@ -440,6 +500,7 @@ Widget _numberField(
   String label, {
   required double min,
   double? max,
+  bool required = true,
 }) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 13),
@@ -449,6 +510,9 @@ Widget _numberField(
       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
       decoration: InputDecoration(labelText: label),
       validator: (value) {
+        if (!required && (value == null || value.trim().isEmpty)) {
+          return null;
+        }
         final number = double.tryParse(value ?? '');
         if (number == null) {
           return 'Enter a valid number';

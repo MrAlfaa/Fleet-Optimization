@@ -11,6 +11,7 @@ from app.services.demand_forecasting_service import (
     export_forecasts_as_csv,
     get_demand_dashboard_summary,
     get_fleet_planning_recommendations,
+    get_demand_run_forecasts,
     get_latest_forecast_summary,
     get_model_metrics,
     get_model_status,
@@ -18,6 +19,7 @@ from app.services.demand_forecasting_service import (
     get_zone_forecast,
     import_artifact_forecasts_to_database,
     list_forecasts,
+    list_demand_runs,
     list_zones,
     refresh_forecast_from_model,
 )
@@ -50,7 +52,7 @@ async def get_forecast_comparison(
     end_date: date | None = Query(default=None),
     _: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES)),
 ) -> dict:
-    return success_response("Mapped forecast comparison retrieved successfully", data=await forecast_vs_actual(zone_id, start_date, end_date))
+    return success_response("Forecast comparison retrieved successfully", data=await forecast_vs_actual(zone_id, start_date, end_date))
 
 
 @router.post("/actuals/rebuild")
@@ -118,7 +120,7 @@ async def refresh(
 ):
     try:
         result = await refresh_forecast_from_model(
-            days=request.days or 30,
+            days=request.days,
             save_to_database=request.save_to_database,
             source=request.source,
             current_user=current_user,
@@ -129,6 +131,31 @@ async def refresh(
         return success_response(message, data=result)
     except DemandArtifactUnavailableError as exc:
         return error_response(exc.message, data=exc.data, status_code=503)
+
+
+@router.get("/runs")
+async def demand_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    _: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES)),
+) -> dict:
+    return success_response("Demand forecast runs retrieved successfully", data=await list_demand_runs(limit=limit))
+
+
+@router.get("/runs/{run_id}")
+async def demand_run_forecasts(
+    run_id: str,
+    zone_id: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: dict = Depends(require_roles(DEMAND_ALLOWED_ROLES)),
+) -> dict:
+    result = await get_demand_run_forecasts(
+        run_id,
+        zone_id=zone_id,
+        page=page,
+        limit=limit,
+    )
+    return success_response("Saved demand forecast retrieved successfully", data=result)
 
 
 @router.get("/planning-recommendations")

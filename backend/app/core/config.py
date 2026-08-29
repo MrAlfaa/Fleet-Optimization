@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     jwt_secret_key: str = Field(default="replace-with-strong-secret-key", alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(default=1440, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    osrm_base_url: str = Field(default="https://router.project-osrm.org", alias="OSRM_BASE_URL")
+    branch_name: str = Field(default="Colombo Central Branch", alias="BRANCH_NAME")
+    branch_address: str = Field(default="Colombo Central Branch, Colombo, Sri Lanka", alias="BRANCH_ADDRESS")
+    branch_latitude: float = Field(default=6.9271, alias="BRANCH_LATITUDE")
+    branch_longitude: float = Field(default=79.8612, alias="BRANCH_LONGITUDE")
 
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default=[

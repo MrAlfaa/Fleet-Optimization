@@ -39,6 +39,7 @@ DEMO_USERS = [
     },
     {
         "full_name": "Driver User",
+        "username": "driver.demo",
         "email": "driver@fleet.local",
         "password": "Driver@12345",
         "role": "driver",
@@ -61,6 +62,13 @@ async def seed_users() -> int:
         for user in DEMO_USERS:
             existing = await collection.find_one({"email": user["email"]})
             if existing:
+                if user["role"] == "driver" and not existing.get("username"):
+                    await collection.update_one(
+                        {"_id": existing["_id"]},
+                        {"$set": {"username": user["username"]}},
+                    )
+                    print(f"UPDATED driver username: {user['email']}")
+                    continue
                 print(f"SKIPPED existing user: {user['email']}")
                 continue
 

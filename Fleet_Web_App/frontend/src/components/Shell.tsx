@@ -42,12 +42,13 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
   { label: 'Vehicles', to: '/vehicles', icon: Truck, permission: 'vehicles.view' },
   { label: 'Maintenance', to: '/maintenance', icon: Wrench, permission: 'maintenance.view' },
-  { label: 'Predictive Risk', to: '/predictive-risk', icon: ShieldAlert, permission: 'predictive.view' },
+  { label: 'Risk Assessments', to: '/predictive-risk', icon: ShieldAlert, permission: 'predictive.view' },
   { label: 'Fleet Readiness', to: '/fleet-readiness', icon: ShieldCheck, permission: 'readiness.view' },
   { label: 'Demand Forecast', to: '/demand-forecast', icon: BarChart3, permission: 'demand.view' },
-  { label: 'Zones', to: '/zones', icon: Map, permission: 'demand.view' },
-  { label: 'Deliveries', to: '/deliveries', icon: Boxes, permission: 'deliveries.view' },
-  { label: 'Route Planning', to: '/route-planning', icon: MapPinned, permission: 'routes.view' },
+  { label: 'Zones', to: '/zones', icon: Map, permission: 'zones.view' },
+  { label: 'Parcel Gallery', to: '/deliveries', icon: Boxes, permission: 'deliveries.view' },
+  { label: 'Parcel Consolidation', to: '/parcel-consolidation', icon: Boxes, permission: 'load_optimization.view' },
+  { label: 'Route Optimization & Load Balancing', to: '/route-planning', icon: MapPinned, permission: 'routes.view' },
   { label: 'Live Trips', to: '/live-trips', icon: RadioTower, permission: 'live_trips.view' },
   { label: 'Alerts', to: '/alerts', icon: Bell, permission: 'alerts.view' },
   { label: 'Reports', to: '/reports', icon: PackageCheck, permission: 'reports.view' },
@@ -56,16 +57,23 @@ const navItems: NavItem[] = [
 const routeTitles: Record<string, string> = {
   '/dashboard': 'Dashboard Overview',
   '/vehicles': 'Vehicle Registry',
-  '/maintenance': 'Maintenance History',
-  '/predictive-risk': 'Predictive Risk Dashboard',
+  '/maintenance': 'Maintenance Command Center',
+  '/maintenance/work-orders': 'Maintenance Work Orders',
+  '/maintenance/history': 'Maintenance History',
+  '/maintenance/inspections': 'Inspection Queue',
+  '/predictive-risk': 'Vehicle Risk Assessments',
   '/fleet-readiness': 'Fleet Readiness',
   '/demand-forecast': 'Demand Forecast Dashboard',
   '/zones': 'Zone Demand Heatmap',
-  '/deliveries': 'Delivery Management',
-  '/route-planning': 'Dispatch Configuration',
+  '/deliveries': 'Parcel Gallery',
+  '/parcel-consolidation': 'Parcel Consolidation - HDBSCAN Clustering',
+  '/load-plans': 'Load Plans',
+  '/loaded-vehicles': 'Loaded Vehicles - Fleet Handoff',
+  '/vehicle-types': 'Vehicle Types - Optimizer Catalog',
+  '/route-planning': 'Route Optimization and Load Balancing',
   '/live-trips': 'Active Deployments',
   '/alerts': 'Alerts Center',
-  '/reports': 'Reports and Model Status',
+  '/reports': 'Reports',
   '/drivers/manage': 'Driver Management',
   '/users/manage': 'User Access Control',
 }
@@ -85,7 +93,7 @@ export function AppShell() {
   const navigationItems = useMemo(() => visibleNavigation([
     ...navItems,
     { label: 'Driver Management', to: '/drivers/manage', icon: Users, permission: 'drivers.manage' },
-    { label: 'User Access', to: '/users/manage', icon: UserCircle, permission: 'users.manage' },
+    { label: 'User Access', to: '/users/manage', icon: UserCircle, permission: 'permissions.manage' },
   ], user), [user])
   const pageResults = useMemo<SearchResult[]>(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -100,7 +108,10 @@ export function AppShell() {
   }, [pageResults, searchResults])
   const dateSupported = ['/demand-forecast', '/reports'].includes(location.pathname)
   const title = useMemo(() => {
-    if (location.pathname.startsWith('/vehicles/')) return 'Vehicle Detail & Health'
+    if (location.pathname.startsWith('/vehicles/')) return 'Vehicle Workspace'
+    if (location.pathname.startsWith('/load-plans/')) return 'Load Plans'
+    if (/^\/maintenance\/inspections\/[^/]+\/decision$/.test(location.pathname)) return 'Repair Decision'
+    if (/^\/maintenance\/inspections\/[^/]+$/.test(location.pathname)) return 'Mechanic Inspection Workspace'
     return routeTitles[location.pathname] ?? 'FleetOpt AI'
   }, [location.pathname])
 
@@ -262,8 +273,8 @@ function HeaderMenu({ menu, navigateTo, onLogout, user }: { menu: 'help' | 'sett
   const title = menu === 'help' ? 'Help and support' : menu === 'settings' ? 'Workspace settings' : 'Profile menu'
   return <div aria-label={title} className="absolute right-0 top-12 z-50 w-72 rounded-lg border border-fleet-line bg-white p-2 text-fleet-ink shadow-xl" role="dialog">
     <div className="border-b border-fleet-line px-3 py-2"><div className="text-sm font-semibold">{title}</div>{menu === 'profile' && <div className="mt-1 truncate text-xs text-fleet-muted">{user?.email}</div>}</div>
-    {menu === 'help' && <div className="p-1"><MenuAction label="Open reports and model status" onClick={() => navigateTo('/reports')} /><MenuAction label="Review operational alerts" onClick={() => navigateTo('/alerts')} /></div>}
-    {menu === 'settings' && <div className="p-1">{canAccess(user, 'users.manage') && <MenuAction label="Manage user access" onClick={() => navigateTo('/users/manage')} />}{canAccess(user, 'drivers.manage') && <MenuAction label="Manage driver devices" onClick={() => navigateTo('/drivers/manage')} />}<div className="px-3 py-2 text-xs text-fleet-muted">Access is controlled by your backend role and assigned permissions.</div></div>}
+    {menu === 'help' && <div className="p-1"><MenuAction label="Open operational reports" onClick={() => navigateTo('/reports')} /><MenuAction label="Review operational alerts" onClick={() => navigateTo('/alerts')} /></div>}
+    {menu === 'settings' && <div className="p-1">{canAccess(user, 'permissions.manage') && <MenuAction label="Manage user access" onClick={() => navigateTo('/users/manage')} />}{canAccess(user, 'drivers.manage') && <MenuAction label="Manage driver devices" onClick={() => navigateTo('/drivers/manage')} />}<div className="px-3 py-2 text-xs text-fleet-muted">Access is controlled by your assigned permissions.</div></div>}
     {menu === 'profile' && <div className="p-1"><div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-fleet-muted">{user?.role.replace('_', ' ')}</div><button className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50" onClick={onLogout} type="button"><LogOut className="h-4 w-4" />Sign out</button></div>}
   </div>
 }

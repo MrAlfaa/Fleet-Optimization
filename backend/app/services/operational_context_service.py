@@ -98,7 +98,7 @@ async def get_operational_context(value: date | None = None) -> dict[str, Any]:
         "holiday_name": holiday_name,
         "rain_probability": weather.get("rain_probability"),
         "weather_label": weather.get("weather_label", "Unavailable"),
-        "artifact_source": "Olist-derived demand artifact",
+        "artifact_source": "Colombo zone demand forecast",
         "last_refresh_at": None,
         "weather_available": weather.get("available", False),
     }

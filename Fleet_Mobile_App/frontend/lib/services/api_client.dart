@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 typedef TokenProvider = String? Function();
-typedef UnauthorizedHandler = Future<void> Function();
+typedef UnauthorizedHandler = Future<bool> Function();
 
 class ApiException implements Exception {
   const ApiException({
@@ -39,8 +39,17 @@ class ApiClient {
     return _send<T>('GET', path);
   }
 
-  Future<T> post<T>(String path, Map<String, dynamic> body) {
-    return _send<T>('POST', path, body: body);
+  Future<T> post<T>(
+    String path,
+    Map<String, dynamic> body, {
+    bool retryUnauthorized = true,
+  }) {
+    return _send<T>(
+      'POST',
+      path,
+      body: body,
+      retryUnauthorized: retryUnauthorized,
+    );
   }
 
   Future<T> patch<T>(String path, Map<String, dynamic> body) {
@@ -51,6 +60,7 @@ class ApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    bool retryUnauthorized = true,
   }) async {
     final uri = Uri.parse('$baseUrl${path.startsWith('/') ? path : '/$path'}');
     final token = tokenProvider?.call();
@@ -85,8 +95,12 @@ class ApiClient {
 
     final decoded = _decodeResponse(response);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      if ((response.statusCode == 401 || response.statusCode == 403) && token != null) {
-        await onUnauthorized?.call();
+      if (response.statusCode == 401 &&
+          token != null &&
+          retryUnauthorized &&
+          onUnauthorized != null &&
+          await onUnauthorized!.call()) {
+        return _send<T>(method, path, body: body, retryUnauthorized: false);
       }
       throw ApiException(
         statusCode: response.statusCode,

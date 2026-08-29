@@ -54,8 +54,10 @@ class DeliveryIncompleteRequest(BaseModel):
         return self
 
 
-TIRE_CONDITIONS = {"normal", "worn", "damaged"}
-BRAKE_CONDITIONS = {"normal", "noisy", "reduced_response", "warning_light"}
+TIRE_CONDITIONS = {"normal", "warning", "critical", "worn", "damaged"}
+BRAKE_CONDITIONS = {"normal", "warning", "critical", "noisy", "reduced_response", "warning_light"}
+POWERTRAIN_CONDITIONS = {"normal", "warning", "critical"}
+CHARGING_OR_FUEL_ISSUES = {"none", "warning", "critical"}
 CHARGING_CONDITIONS = {"normal", "intermittent", "not_charging", "port_damaged"}
 VEHICLE_DAMAGE_LEVELS = {"none", "minor", "major"}
 DASHBOARD_WARNING_LEVELS = {"none", "amber", "red"}
@@ -66,14 +68,17 @@ CHARGING_PROBLEM_LEVELS = {"none", "intermittent", "failed"}
 
 class PreTripInspectionRequest(BaseModel):
     odometer: float = Field(ge=0, le=5_000_000)
-    battery_soc: float = Field(ge=0, le=100)
+    battery_soc: float | None = Field(default=None, ge=0, le=100)
     tire_condition: str
     brake_condition: str
-    charging_condition: str
+    powertrain_condition: str = "normal"
+    charging_or_fuel_issue: str = "none"
+    charging_condition: str | None = None
     vehicle_damage: str
     dashboard_warning: str
     unusual_noise: str
-    unusual_vibration: str
+    vibration_level: str | None = None
+    unusual_vibration: str | None = None
     notes: str | None = Field(default=None, max_length=1000)
 
     @field_validator("tire_condition")
@@ -86,10 +91,20 @@ class PreTripInspectionRequest(BaseModel):
     def valid_brake_condition(cls, value: str) -> str:
         return validate_choice(value, BRAKE_CONDITIONS, "Brake condition")
 
+    @field_validator("powertrain_condition")
+    @classmethod
+    def valid_powertrain_condition(cls, value: str) -> str:
+        return validate_choice(value, POWERTRAIN_CONDITIONS, "Powertrain condition")
+
+    @field_validator("charging_or_fuel_issue")
+    @classmethod
+    def valid_charging_or_fuel_issue(cls, value: str) -> str:
+        return validate_choice(value, CHARGING_OR_FUEL_ISSUES, "Charging or fuel issue")
+
     @field_validator("charging_condition")
     @classmethod
-    def valid_charging_condition(cls, value: str) -> str:
-        return validate_choice(value, CHARGING_CONDITIONS, "Charging condition")
+    def valid_charging_condition(cls, value: str | None) -> str | None:
+        return value if value is None else validate_choice(value, CHARGING_CONDITIONS, "Charging condition")
 
     @field_validator("vehicle_damage")
     @classmethod
@@ -101,33 +116,58 @@ class PreTripInspectionRequest(BaseModel):
     def valid_dashboard_warning(cls, value: str) -> str:
         return validate_choice(value, DASHBOARD_WARNING_LEVELS, "Dashboard warning")
 
-    @field_validator("unusual_noise", "unusual_vibration")
+    @field_validator("unusual_noise", "vibration_level", "unusual_vibration")
     @classmethod
-    def valid_observation(cls, value: str) -> str:
-        return validate_choice(value, OBSERVATION_LEVELS, "Observation")
+    def valid_observation(cls, value: str | None) -> str | None:
+        return value if value is None else validate_choice(value, OBSERVATION_LEVELS, "Observation")
 
 
 class PostTripInspectionRequest(BaseModel):
     ending_odometer: float = Field(ge=0, le=5_000_000)
-    ending_battery_soc: float = Field(ge=0, le=100)
-    tire_condition_change: str
-    brake_condition_change: str
-    charging_problem: str
+    ending_battery_soc: float | None = Field(default=None, ge=0, le=100)
+    tire_condition: str = "normal"
+    brake_condition: str = "normal"
+    powertrain_condition: str = "normal"
+    charging_or_fuel_issue: str = "none"
+    tire_condition_change: str | None = None
+    brake_condition_change: str | None = None
+    charging_problem: str | None = None
     vehicle_damage: str
     dashboard_warning: str
     unusual_noise: str
-    unusual_vibration: str
+    vibration_level: str | None = None
+    unusual_vibration: str | None = None
     notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("tire_condition")
+    @classmethod
+    def valid_tire_condition(cls, value: str) -> str:
+        return validate_choice(value, TIRE_CONDITIONS, "Tire condition")
+
+    @field_validator("brake_condition")
+    @classmethod
+    def valid_brake_condition(cls, value: str) -> str:
+        return validate_choice(value, BRAKE_CONDITIONS, "Brake condition")
+
+    @field_validator("powertrain_condition")
+    @classmethod
+    def valid_powertrain_condition(cls, value: str) -> str:
+        return validate_choice(value, POWERTRAIN_CONDITIONS, "Powertrain condition")
+
+    @field_validator("charging_or_fuel_issue")
+    @classmethod
+    def valid_charging_or_fuel_issue(cls, value: str) -> str:
+        return validate_choice(value, CHARGING_OR_FUEL_ISSUES, "Charging or fuel issue")
 
     @field_validator("tire_condition_change", "brake_condition_change")
     @classmethod
-    def valid_condition_change(cls, value: str) -> str:
-        return validate_choice(value, CONDITION_CHANGE_LEVELS, "Condition change")
+    def valid_condition_change(cls, value: str | None) -> str | None:
+        return value if value is None else validate_choice(value, CONDITION_CHANGE_LEVELS, "Condition change")
 
     @field_validator("charging_problem")
     @classmethod
-    def valid_charging_problem(cls, value: str) -> str:
-        return validate_choice(value, CHARGING_PROBLEM_LEVELS, "Charging problem")
+    def valid_charging_problem(cls, value: str | None) -> str | None:
+        return value if value is None else validate_choice(value, CHARGING_PROBLEM_LEVELS, "Charging problem")
 
     @field_validator("vehicle_damage")
     @classmethod
@@ -139,10 +179,10 @@ class PostTripInspectionRequest(BaseModel):
     def valid_dashboard_warning(cls, value: str) -> str:
         return validate_choice(value, DASHBOARD_WARNING_LEVELS, "Dashboard warning")
 
-    @field_validator("unusual_noise", "unusual_vibration")
+    @field_validator("unusual_noise", "vibration_level", "unusual_vibration")
     @classmethod
-    def valid_observation(cls, value: str) -> str:
-        return validate_choice(value, OBSERVATION_LEVELS, "Observation")
+    def valid_observation(cls, value: str | None) -> str | None:
+        return value if value is None else validate_choice(value, OBSERVATION_LEVELS, "Observation")
 
     def validate_against_starting_odometer(self, starting_odometer: float) -> None:
         if self.ending_odometer < starting_odometer:

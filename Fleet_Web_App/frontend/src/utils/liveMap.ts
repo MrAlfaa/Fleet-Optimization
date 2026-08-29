@@ -1,8 +1,8 @@
-import type { GoogleMapMarker, MapPoint } from '../components/GoogleMapPanel'
+import type { MapPoint, OpenStreetMapMarker } from '../components/OpenStreetMapPanel'
 import type { LiveTrip, LiveTripLocation } from '../types'
 
 export interface LiveMapView {
-  markers: GoogleMapMarker[]
+  markers: OpenStreetMapMarker[]
   trail: MapPoint[]
   selectedTrip: LiveTrip | null
   progress: {

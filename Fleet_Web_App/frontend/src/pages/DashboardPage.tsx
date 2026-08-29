@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, AlertTriangle, ArrowRight, MapPin, Route, ShieldCheck, Truck, Wrench } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Line, LineChart } from 'recharts'
-import { GoogleMapPanel } from '../components/GoogleMapPanel'
+import { OpenStreetMapPanel } from '../components/OpenStreetMapPanel'
 import { Card, ErrorState, LoadingState, MetricCard, PageHeader, StatusBadge } from '../components/UI'
 import { formatNumber } from '../utils/format'
 import { buildLiveMapView } from '../utils/liveMap'
@@ -120,7 +120,7 @@ export function DashboardPage() {
           action={<button className="focus-ring rounded-md px-2 py-1 text-xs font-bold text-fleet-blue hover:bg-blue-50" onClick={() => navigate('/live-trips')} type="button">Expand Map</button>}
           title="Live Network Activity"
         >
-          <GoogleMapPanel
+          <OpenStreetMapPanel
             center={mapCenter}
             className="min-h-[340px]"
             markers={liveMap.markers}
@@ -168,7 +168,7 @@ export function DashboardPage() {
                 </div>
               </div>
             ) : null}
-          </GoogleMapPanel>
+          </OpenStreetMapPanel>
         </Card>
 
         <Card title="Fleet Risk Profile">

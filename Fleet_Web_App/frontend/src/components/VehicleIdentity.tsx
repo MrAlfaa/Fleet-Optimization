@@ -1,4 +1,5 @@
 import { Truck } from 'lucide-react'
+import { useState } from 'react'
 import type { Vehicle } from '../types'
 
 
@@ -11,11 +12,14 @@ const SIZE_STYLES = {
 
 export function VehicleIdentity({ vehicle, size = 'md' }: { vehicle: Vehicle; size?: keyof typeof SIZE_STYLES }) {
   const styles = SIZE_STYLES[size]
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
+  const showImage = Boolean(vehicle.imageUrl && failedImageUrl !== vehicle.imageUrl)
+
   return (
     <div className="flex min-w-0 items-center gap-3">
       <div className={`${styles.image} grid shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100`}>
-        {vehicle.imageUrl ? (
-          <img alt={`${vehicle.registrationNumber} vehicle`} className="h-full w-full object-cover" src={vehicle.imageUrl} />
+        {showImage ? (
+          <img alt={`${vehicle.registrationNumber} vehicle`} className="h-full w-full object-cover" onError={() => setFailedImageUrl(vehicle.imageUrl)} src={vehicle.imageUrl ?? undefined} />
         ) : (
           <Truck aria-hidden="true" className="h-1/2 w-1/2 text-slate-400" />
         )}

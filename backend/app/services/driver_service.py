@@ -13,11 +13,13 @@ from app.models.driver_execution_model import DELIVERY_ATTEMPT_COLLECTION, DRIVE
 from app.models.route_model import ROUTE_PLAN_COLLECTION, ROUTE_SEGMENT_COLLECTION
 from app.models.user_model import utc_now
 from app.models.vehicle_model import VEHICLE_COLLECTION
+from app.services.predictive_artifact_registry import predictive_artifact_registry
 from app.services.alert_service import create_alert, resolve_alert
 from app.services.delivery_service import update_delivery_status
 from app.services.live_trip_service import create_delivery_status_trip_event, create_driver_issue_trip_event
 from app.utils.object_id import serialize_mongo_document, serialize_mongo_list, serialize_object_id, validate_object_id
 from app.utils.sri_lanka_zones import enrich_zone_record
+from app.utils.branch_operations import build_delivery_schedule, delivery_batch_key
 
 
 def _db():
@@ -77,13 +79,16 @@ async def get_assigned_vehicle(current_user: dict[str, Any]) -> dict[str, Any] |
         "vehicle_code": vehicle.get("vehicle_code"),
         "registration_number": vehicle.get("registration_number"),
         "vehicle_type": vehicle.get("vehicle_type"),
+        "fuel_type": vehicle.get("fuel_type", "electric"),
+        "vehicle_category": vehicle.get("vehicle_category"),
+        "payload_capacity_kg": vehicle.get("payload_capacity_kg"),
         "brand": vehicle.get("brand"),
         "model": vehicle.get("model"),
         "current_mileage": vehicle.get("current_mileage", 0),
         "health_status": vehicle.get("health_status", "unknown"),
         "status": vehicle.get("status"),
         "risk_summary": _vehicle_risk_summary(vehicle.get("health_status", "unknown")),
-        "model_status": "Predictive maintenance backend connected",
+        "model_status": "available" if predictive_artifact_registry.status()["available"] else "degraded",
     }
 
 
@@ -97,13 +102,36 @@ def _vehicle_risk_summary(health_status: str) -> str:
     return "No recent predictive maintenance result is available for this vehicle."
 
 
+def _optimized_delivery_ids(route: dict[str, Any]) -> list[str]:
+    order_ids = [str(order_id) for order_id in route.get("delivery_order_ids", [])]
+    optimized_ids: list[str] = []
+
+    for stop in route.get("optimized_stop_order", []):
+        order_id: str | None = None
+        if isinstance(stop, dict):
+            if stop.get("type") == "delivery" and stop.get("order_id"):
+                order_id = str(stop["order_id"])
+        elif isinstance(stop, int) and not isinstance(stop, bool):
+            # Legacy optimizer routes used point indexes where zero is the depot.
+            if 1 <= stop <= len(order_ids):
+                order_id = order_ids[stop - 1]
+        elif isinstance(stop, str) and stop in order_ids:
+            order_id = stop
+
+        if order_id in order_ids and order_id not in optimized_ids:
+            optimized_ids.append(order_id)
+
+    return optimized_ids or order_ids
+
+
 async def _route_delivery_rows(route: dict[str, Any]) -> list[dict[str, Any]]:
     order_ids = route.get("delivery_order_ids", [])
     if not order_ids:
         return []
     rows = await _db()[DELIVERY_COLLECTION].find({"_id": {"$in": order_ids}}).to_list(length=200)
-    by_id = {row["_id"]: row for row in rows}
-    return [by_id[order_id] for order_id in order_ids if order_id in by_id]
+    by_id = {str(row["_id"]): row for row in rows}
+    ordered_ids = _optimized_delivery_ids(route)
+    return [by_id[order_id] for order_id in ordered_ids if order_id in by_id]
 
 
 def _eta_for_stop(route: dict[str, Any], sequence: int) -> str:
@@ -116,15 +144,37 @@ def _eta_for_stop(route: dict[str, Any], sequence: int) -> str:
 
 def _mobile_stop(row: dict[str, Any], sequence: int, route: dict[str, Any]) -> dict[str, Any]:
     zone = enrich_zone_record({"zone_id": row.get("zone_id")}) if row.get("zone_id") else None
+    profile = row.get("load_profile") or {}
+    dimensions = {
+        "length": float(profile["length_cm"]),
+        "width": float(profile["width_cm"]),
+        "height": float(profile["height_cm"]),
+    } if all(profile.get(key) is not None for key in ("length_cm", "width_cm", "height_cm")) else None
+    handling = []
+    if profile.get("fragile"):
+        handling.append("Fragile")
+    if profile.get("do_not_tilt"):
+        handling.append("Do not tilt")
+    if profile.get("two_person_lift"):
+        handling.append("Two-person lift")
+    if profile.get("requires_refrigeration"):
+        handling.append("Refrigerated")
+    if profile.get("hazardous"):
+        handling.append("Hazardous")
     return {
         "id": serialize_object_id(row["_id"]),
+        "parcel_code": row.get("order_code") or serialize_object_id(row["_id"]),
         "sequence": sequence,
         "customer_name": row.get("customer_name") or row.get("order_code") or f"Stop {sequence}",
+        "customer_phone": row.get("customer_phone"),
         "drop_address": row.get("drop_address") or f"{row.get('drop_latitude', 0)}, {row.get('drop_longitude', 0)}",
         "zone_id": zone["zone_display_name"] if zone else "Unassigned zone",
         "operational_zone_id": zone["operational_zone_id"] if zone else None,
         "eta": _eta_for_stop(route, sequence),
         "priority": row.get("priority", "medium"),
+        "parcel_weight_kg": float(row["parcel_weight"]) if row.get("parcel_weight") is not None else None,
+        "dimensions_cm": dimensions,
+        "handling": handling,
         "drop_latitude": float(row.get("drop_latitude") or 0),
         "drop_longitude": float(row.get("drop_longitude") or 0),
         "delivery_status": row.get("delivery_status", "pending"),
@@ -157,6 +207,10 @@ async def get_assigned_route(current_user: dict[str, Any]) -> dict[str, Any]:
             "total_route_cost_score": float(route.get("total_route_cost_score") or 0),
             "average_delay_probability": float(route.get("average_delay_probability") or 0),
             "status": route.get("status"),
+            "driver_id": serialize_object_id(route.get("driver_id")),
+            "vehicle_id": serialize_object_id(route.get("vehicle_id")),
+            "delivery_date": route.get("delivery_date"),
+            "delivery_period": route.get("delivery_period"),
             "dispatched_at": _iso_or_none(route.get("dispatched_at")),
         },
         "stops": stops,
@@ -221,6 +275,9 @@ async def mark_driver_delivery_incomplete(order_id: str, data: dict[str, Any], c
     scheduled = delivery.get("scheduled_date")
     next_date = calculate_next_delivery_schedule(scheduled)
     local = next_date.astimezone(ZoneInfo("Asia/Colombo"))
+    current_batch = delivery_batch_key(delivery)
+    period = current_batch[1] if current_batch else "first_half"
+    next_schedule = build_delivery_schedule(local.date(), period)
     now = utc_now()
     attempt = {
         "delivery_order_id": order_object_id,
@@ -243,7 +300,14 @@ async def mark_driver_delivery_incomplete(order_id: str, data: dict[str, Any], c
     attempt["_id"] = result.inserted_id
     await _db()[DELIVERY_COLLECTION].update_one(
         {"_id": order_object_id},
-        {"$set": {"delivery_status": "rescheduled", "scheduled_date": next_date, "last_failure_reason": data["reason"], "last_failure_details": data.get("details"), "updated_at": now}, "$unset": {"assigned_driver_id": "", "assigned_vehicle_id": ""}},
+        {"$set": {
+            "delivery_status": "pending",
+            **next_schedule,
+            "rescheduled_from_route_id": route["_id"],
+            "last_failure_reason": data["reason"],
+            "last_failure_details": data.get("details"),
+            "updated_at": now,
+        }, "$unset": {"assigned_driver_id": "", "assigned_vehicle_id": ""}},
     )
     await create_delivery_status_trip_event(order_id, "failed", route, delivery)
     await create_alert({
@@ -327,3 +391,22 @@ async def acknowledge_driver_alert(alert_id: str, current_user: dict[str, Any]) 
     if alert_id not in visible_alert_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Alert is not visible to this driver")
     return await resolve_alert(alert_id, current_user)
+    if route.get("status") != "in_progress":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start the trip before updating a delivery stop")
+    ordered_rows = await _route_delivery_rows(route)
+    next_order = next(
+        (row for row in ordered_rows if row.get("delivery_status") not in {"delivered", "failed", "cancelled", "rescheduled"}),
+        None,
+    )
+    if next_order is not None and next_order["_id"] != object_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete the next route stop before updating this delivery")
+
+    if route.get("status") != "in_progress":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Start the trip before marking a delivery incomplete")
+    ordered_rows = await _route_delivery_rows(route)
+    next_order = next(
+        (row for row in ordered_rows if row.get("delivery_status") not in {"delivered", "failed", "cancelled", "rescheduled"}),
+        None,
+    )
+    if next_order is not None and next_order["_id"] != order_object_id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Complete the next route stop before updating this delivery")

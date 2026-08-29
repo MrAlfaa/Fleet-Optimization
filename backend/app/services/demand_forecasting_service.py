@@ -1,14 +1,21 @@
 from datetime import datetime, timedelta, timezone
 from io import StringIO
+import hashlib
+import json
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from bson import ObjectId
 from fastapi import HTTPException, status
+from pymongo import UpdateOne
+from pymongo.errors import DuplicateKeyError
 
 from app.core.database import get_database
 from app.models.alert_model import ALERT_COLLECTION
 from app.models.demand_model import (
+    DEMAND_ACTIVE_RUN_COLLECTION,
+    DEMAND_ACTIVE_RUN_POINTER_ID,
     DEMAND_FORECAST_COLLECTION,
     DEMAND_MODEL_RUN_COLLECTION,
     DEMAND_ZONE_COLLECTION,
@@ -25,13 +32,13 @@ from app.services.demand_artifact_loader_service import (
     DEMAND_ARTIFACT_DIR,
     DemandArtifactUnavailableError,
     get_demand_artifact_status,
+    load_demand_artifacts,
     load_demand_metrics,
-    load_demand_model_bundle,
-    load_fleet_planning_recommendations_csv,
     load_future_forecast_csv,
     load_zone_adjacency_graph,
     load_zone_metadata_csv,
 )
+from app.services.demand_artifact_registry import MODEL_VERSION
 from app.utils.demand_utils import (
     estimate_required_vehicles,
     normalize_demand_level,
@@ -39,15 +46,16 @@ from app.utils.demand_utils import (
     recommended_action_from_demand_level,
     safe_float,
     standardize_forecast_record,
-    standardize_planning_record,
     zone_display_fields,
 )
 from app.utils.object_id import serialize_mongo_list, validate_object_id
 from app.utils.pagination import build_pagination_response, calculate_skip, normalize_pagination
-from app.utils.sri_lanka_zones import DATA_CONTEXT, SRI_LANKA_ZONE_ALIASES, enrich_zone_record, operational_zone_id, source_zone_id
+from app.utils.sri_lanka_zones import DATA_CONTEXT, enrich_zone_record, operational_zone_id, operational_zone_options
 
 
 DEMAND_ALLOWED_ROLES = ["admin", "fleet_manager", "route_planner"]
+APPROVED_REFRESH_HORIZONS = {7, 14, 30}
+COLOMBO_TIMEZONE = ZoneInfo("Asia/Colombo")
 
 
 def _db():
@@ -79,11 +87,198 @@ def _date_range_filter(start_date: str | None, end_date: str | None) -> dict[str
 
 
 async def get_model_status(load_model: bool = True) -> dict[str, Any]:
-    return get_demand_artifact_status(load_model=load_model)
+    result = get_demand_artifact_status(load_model=load_model)
+    active = await _active_run_metadata()
+    return {
+        **result,
+        "active_run": active,
+        "planning_window": active.get("planning_window") if active else None,
+        "operational_state": "degraded" if result.get("degraded") else "ready",
+    }
 
 
 async def get_model_metrics() -> dict[str, Any]:
     return load_demand_metrics()
+
+
+def _iso_datetime(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _planning_window_metadata(run: dict[str, Any]) -> dict[str, Any]:
+    metrics = run.get("metrics_snapshot") or {}
+    dataset_end = (metrics.get("dataset") or {}).get("end")
+    return {
+        "basis": "colombo_business_date",
+        "dataset_end_date": str(dataset_end) if dataset_end else None,
+        "forecast_start_date": _iso_datetime(run.get("forecast_start_date")),
+        "forecast_end_date": _iso_datetime(run.get("forecast_end_date")),
+        "horizon_days": int(run.get("horizon_days") or 0),
+    }
+
+
+def _run_metadata(run: dict[str, Any], *, include_status: bool = False) -> dict[str, Any]:
+    safe = safe_demand_document(run) or {}
+    metadata = {
+        "model_run_id": safe.get("id"),
+        "run_type": run.get("run_type"),
+        "model_version": run.get("model_version") or run.get("model_name"),
+        "horizon_days": int(run.get("horizon_days") or 0),
+        "source_requested": run.get("source_requested"),
+        "effective_source": run.get("effective_source") or run.get("source_requested"),
+        "fallback_used": bool(run.get("fallback_used", False)),
+        "request_fingerprint": run.get("request_fingerprint"),
+        "forecast_start_date": _iso_datetime(run.get("forecast_start_date")),
+        "forecast_end_date": _iso_datetime(run.get("forecast_end_date")),
+        "zones_count": int(run.get("zones_count") or 0),
+        "records_generated": int(run.get("records_generated") or 0),
+        "generated_at": _iso_datetime(run.get("generated_at") or run.get("created_at")),
+        "activated_at": _iso_datetime(run.get("activated_at")),
+        "planning_window": _planning_window_metadata(run),
+    }
+    if include_status:
+        metadata["status"] = run.get("status")
+        metadata["failed_at"] = _iso_datetime(run.get("failed_at"))
+    return metadata
+
+
+async def _active_run_document() -> dict[str, Any] | None:
+    pointer = await _db()[DEMAND_ACTIVE_RUN_COLLECTION].find_one({"_id": DEMAND_ACTIVE_RUN_POINTER_ID})
+    if not pointer or not pointer.get("model_run_id"):
+        return None
+    return await _db()[DEMAND_MODEL_RUN_COLLECTION].find_one({"_id": pointer["model_run_id"], "status": "completed"})
+
+
+async def _active_run_metadata() -> dict[str, Any] | None:
+    run = await _active_run_document()
+    return _run_metadata(run) if run else None
+
+
+async def list_demand_runs(limit: int = 20) -> dict[str, Any]:
+    current_dataset_end = (load_demand_metrics().get("dataset") or {}).get("end")
+    query: dict[str, Any] = {
+        "status": {"$in": ["completed", "failed"]},
+        "model_version": MODEL_VERSION,
+    }
+    if current_dataset_end:
+        # Preserve superseded runs in MongoDB for audit history, while keeping
+        # the operational cycle list scoped to the currently approved dataset.
+        query["metrics_snapshot.dataset.end"] = current_dataset_end
+    cursor = (
+        _db()[DEMAND_MODEL_RUN_COLLECTION]
+        .find(query)
+        .sort("created_at", -1)
+        .limit(limit)
+    )
+    runs = await cursor.to_list(length=limit)
+    return {"items": [_run_metadata(run, include_status=True) for run in runs], "limit": limit}
+
+
+async def get_demand_run_forecasts(
+    run_id: str,
+    *,
+    zone_id: str | None = None,
+    page: int = 1,
+    limit: int = 100,
+) -> dict[str, Any]:
+    try:
+        run_oid = validate_object_id(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid demand forecast run ID") from exc
+
+    current_dataset_end = (load_demand_metrics().get("dataset") or {}).get("end")
+    run_query: dict[str, Any] = {
+        "_id": run_oid,
+        "status": "completed",
+        "model_version": MODEL_VERSION,
+    }
+    if current_dataset_end:
+        run_query["metrics_snapshot.dataset.end"] = current_dataset_end
+    run = await _db()[DEMAND_MODEL_RUN_COLLECTION].find_one(run_query)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demand forecast run was not found")
+
+    page, limit = normalize_pagination(page, min(limit, 500))
+    forecast_query: dict[str, Any] = {"model_run_id": run_oid}
+    if zone_id:
+        forecast_query["zone_id"] = operational_zone_id(zone_id)
+    collection = _db()[DEMAND_FORECAST_COLLECTION]
+    total = await collection.count_documents(forecast_query)
+    cursor = (
+        collection.find(forecast_query)
+        .sort([("forecast_date", 1), ("zone_id", 1)])
+        .skip(calculate_skip(page, limit))
+        .limit(limit)
+    )
+    items = [
+        enrich_zone_record(_add_forecast_planning_fields(row))
+        for row in serialize_mongo_list(await cursor.to_list(length=limit))
+    ]
+    return {
+        **build_pagination_response(items, total, page, limit),
+        "run": _run_metadata(run, include_status=True),
+    }
+
+
+def _request_fingerprint(model_version: str, source: str, horizon_days: int, forecast_start: datetime) -> str:
+    payload = {
+        "forecast_start": forecast_start.date().isoformat(),
+        "horizon_days": int(horizon_days),
+        "model_version": model_version,
+        "source": source,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+async def _reusable_active_run(request_fingerprint: str, effective_source: str) -> dict[str, Any] | None:
+    run = await _active_run_document()
+    if (
+        run
+        and run.get("request_fingerprint") == request_fingerprint
+        and (run.get("effective_source") or run.get("source_requested")) == effective_source
+        and bool(run.get("fallback_used", False)) == (effective_source == "artifact_fallback")
+    ):
+        return run
+    return None
+
+
+async def get_active_run_id() -> ObjectId | None:
+    pointer = await _db()[DEMAND_ACTIVE_RUN_COLLECTION].find_one({"_id": DEMAND_ACTIVE_RUN_POINTER_ID})
+    return pointer.get("model_run_id") if pointer else None
+
+
+def _validate_complete_run(
+    forecasts: list[dict[str, Any]],
+    recommendations: list[dict[str, Any]],
+    *,
+    expected_zone_ids: set[str],
+    expected_days: int,
+    expected_start: datetime,
+) -> dict[str, Any]:
+    expected_start = expected_start if expected_start.tzinfo else expected_start.replace(tzinfo=timezone.utc)
+    expected_dates = {expected_start.date() + timedelta(days=index) for index in range(expected_days)}
+
+    def keys(rows: list[dict[str, Any]]) -> set[tuple[str, Any]]:
+        return {(str(row["zone_id"]), parse_forecast_date(row["forecast_date"]).date()) for row in rows}
+
+    expected_keys = {(zone, value) for zone in expected_zone_ids for value in expected_dates}
+    forecast_keys = keys(forecasts)
+    recommendation_keys = keys(recommendations)
+    if forecast_keys != expected_keys or recommendation_keys != expected_keys:
+        raise ValueError("Demand run is not complete for every operational zone and forecast date")
+    if len(forecasts) != len(expected_keys) or len(recommendations) != len(expected_keys):
+        raise ValueError("Demand run contains duplicate or incomplete operational records")
+    return {
+        "records": len(forecasts),
+        "zones": len(expected_zone_ids),
+        "days": expected_days,
+        "forecast_start_date": expected_start,
+        "forecast_end_date": expected_start + timedelta(days=expected_days - 1),
+    }
 
 
 async def _upsert_zone(row: dict[str, Any]) -> None:
@@ -95,8 +290,8 @@ async def _upsert_zone(row: dict[str, Any]) -> None:
             "zone_name": display["zone_name"],
             "city": display["city"],
             "state": display["state"],
-            "zone_lat": safe_float(row.get("zone_lat")) if "zone_lat" in row else None,
-            "zone_lng": safe_float(row.get("zone_lng")) if "zone_lng" in row else None,
+            "zone_lat": safe_float(row.get("zone_lat", row.get("latitude"))) if "zone_lat" in row or "latitude" in row else None,
+            "zone_lng": safe_float(row.get("zone_lng", row.get("longitude"))) if "zone_lng" in row or "longitude" in row else None,
             "customer_count": int(safe_float(row.get("customer_count"), default=0)) if "customer_count" in row else None,
             "is_active": True,
         }
@@ -109,10 +304,11 @@ async def _upsert_zone(row: dict[str, Any]) -> None:
 
 
 async def _upsert_forecast(record: dict[str, Any], model_run_id: ObjectId | None = None) -> None:
-    doc_data = {**record, "model_run_id": model_run_id}
+    doc_data = {**record, "model_run_id": model_run_id, "model_version": MODEL_VERSION}
     document = build_demand_forecast_document(doc_data)
     await _db()[DEMAND_FORECAST_COLLECTION].update_one(
         {
+            "model_run_id": model_run_id,
             "zone_id": document["zone_id"],
             "forecast_date": document["forecast_date"],
             "model_type": document["model_type"],
@@ -122,13 +318,47 @@ async def _upsert_forecast(record: dict[str, Any], model_run_id: ObjectId | None
     )
 
 
-async def _upsert_recommendation(record: dict[str, Any]) -> None:
-    document = build_fleet_recommendation_document(record)
+async def _upsert_recommendation(record: dict[str, Any], model_run_id: ObjectId | None = None) -> None:
+    document = build_fleet_recommendation_document({**record, "model_run_id": model_run_id, "model_version": MODEL_VERSION})
     await _db()[FLEET_RECOMMENDATION_COLLECTION].update_one(
-        {"zone_id": document["zone_id"], "forecast_date": document["forecast_date"]},
+        {"model_run_id": model_run_id, "zone_id": document["zone_id"], "forecast_date": document["forecast_date"]},
         {"$set": document},
         upsert=True,
     )
+
+
+async def _persist_forecast_run(
+    forecasts: list[dict[str, Any]],
+    recommendations: list[dict[str, Any]],
+    model_run_id: ObjectId,
+) -> None:
+    forecast_operations = []
+    for record in forecasts:
+        document = build_demand_forecast_document({**record, "model_run_id": model_run_id, "model_version": MODEL_VERSION})
+        forecast_operations.append(UpdateOne(
+            {
+                "model_run_id": model_run_id,
+                "zone_id": document["zone_id"],
+                "forecast_date": document["forecast_date"],
+                "model_type": document["model_type"],
+            },
+            {"$set": document},
+            upsert=True,
+        ))
+
+    recommendation_operations = []
+    for record in recommendations:
+        document = build_fleet_recommendation_document({**record, "model_run_id": model_run_id, "model_version": MODEL_VERSION})
+        recommendation_operations.append(UpdateOne(
+            {"model_run_id": model_run_id, "zone_id": document["zone_id"], "forecast_date": document["forecast_date"]},
+            {"$set": document},
+            upsert=True,
+        ))
+
+    if forecast_operations:
+        await _db()[DEMAND_FORECAST_COLLECTION].bulk_write(forecast_operations, ordered=False)
+    if recommendation_operations:
+        await _db()[FLEET_RECOMMENDATION_COLLECTION].bulk_write(recommendation_operations, ordered=False)
 
 
 async def _create_model_run(
@@ -137,13 +367,19 @@ async def _create_model_run(
     zones_count: int,
     forecast_dates: list[datetime],
     current_user: dict[str, Any] | None,
-    status_value: str = "completed",
+    horizon_days: int,
+    source_requested: str,
+    effective_source: str,
+    fallback_used: bool,
+    request_fingerprint: str,
+    status_value: str = "staging",
 ) -> ObjectId:
     user_id = _object_id(current_user.get("id")) if current_user else None
     document = build_demand_model_run_document(
         {
             "run_type": run_type,
-            "model_name": "Graph-Enhanced Prophet",
+            "model_name": MODEL_VERSION,
+            "model_version": MODEL_VERSION,
             "artifact_source": str(DEMAND_ARTIFACT_DIR),
             "metrics_snapshot": load_demand_metrics(),
             "forecast_start_date": min(forecast_dates) if forecast_dates else None,
@@ -151,11 +387,64 @@ async def _create_model_run(
             "zones_count": zones_count,
             "records_generated": records_generated,
             "status": status_value,
+            "horizon_days": horizon_days,
+            "source_requested": source_requested,
+            "effective_source": effective_source,
+            "fallback_used": fallback_used,
+            "request_fingerprint": request_fingerprint,
             "created_by": user_id,
         }
     )
-    result = await _db()[DEMAND_MODEL_RUN_COLLECTION].insert_one(document)
+    try:
+        result = await _db()[DEMAND_MODEL_RUN_COLLECTION].insert_one(document)
+    except DuplicateKeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An identical demand forecast generation is already in progress",
+        ) from exc
     return result.inserted_id
+
+
+async def _activate_complete_run(model_run_id: ObjectId, validation: dict[str, Any]) -> None:
+    db = _db()
+    forecast_count = await db[DEMAND_FORECAST_COLLECTION].count_documents({"model_run_id": model_run_id})
+    recommendation_count = await db[FLEET_RECOMMENDATION_COLLECTION].count_documents({"model_run_id": model_run_id})
+    expected = int(validation["records"])
+    if forecast_count != expected or recommendation_count != expected:
+        raise ValueError("Persisted demand run is incomplete and cannot be activated")
+
+    now = utc_now()
+    await db[DEMAND_MODEL_RUN_COLLECTION].update_one(
+        {"_id": model_run_id, "status": "staging"},
+        {"$set": {"status": "completed", "validation": validation, "activated_at": now}},
+    )
+    run = await db[DEMAND_MODEL_RUN_COLLECTION].find_one({"_id": model_run_id})
+    pointer_metadata = {
+        "model_run_id": model_run_id,
+        "model_version": (run or {}).get("model_version") or MODEL_VERSION,
+        "run_type": (run or {}).get("run_type"),
+        "horizon_days": int((run or {}).get("horizon_days") or validation.get("days") or 0),
+        "source_requested": (run or {}).get("source_requested"),
+        "effective_source": (run or {}).get("effective_source") or (run or {}).get("source_requested"),
+        "fallback_used": bool((run or {}).get("fallback_used", False)),
+        "request_fingerprint": (run or {}).get("request_fingerprint"),
+        "generated_at": (run or {}).get("generated_at") or (run or {}).get("created_at"),
+        "activated_at": now,
+    }
+    # One-document replacement is the visibility boundary. Readers never query
+    # staging rows and switch from the previous complete run in one write.
+    await db[DEMAND_ACTIVE_RUN_COLLECTION].update_one(
+        {"_id": DEMAND_ACTIVE_RUN_POINTER_ID},
+        {"$set": pointer_metadata},
+        upsert=True,
+    )
+
+
+async def _mark_run_failed(model_run_id: ObjectId, exc: Exception) -> None:
+    await _db()[DEMAND_MODEL_RUN_COLLECTION].update_one(
+        {"_id": model_run_id},
+        {"$set": {"status": "failed", "error": str(exc), "failed_at": utc_now()}},
+    )
 
 
 async def _create_demand_alert_if_needed(record: dict[str, Any]) -> bool:
@@ -186,38 +475,119 @@ async def _create_demand_alert_if_needed(record: dict[str, Any]) -> bool:
     return True
 
 
-async def import_artifact_forecasts_to_database(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    status_data = get_demand_artifact_status(load_model=False)
-    if status_data["missing_files"]:
-        raise DemandArtifactUnavailableError(
-            "Demand forecasting artifact is unavailable",
-            {"missing_files": status_data["missing_files"], "artifact_path": status_data["artifact_path"]},
-        )
+def _forecast_start_from_metrics(metrics: dict[str, Any]) -> datetime:
+    dataset_end = (metrics.get("dataset") or {}).get("end")
+    if not dataset_end:
+        raise ValueError("Demand artifact metrics do not declare the dataset end date")
+    return parse_forecast_date(dataset_end) + timedelta(days=1)
 
+
+def _current_forecast_start(now: datetime | None = None) -> datetime:
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        local_reference = reference.replace(tzinfo=COLOMBO_TIMEZONE)
+    else:
+        local_reference = reference.astimezone(COLOMBO_TIMEZONE)
+    return datetime(local_reference.year, local_reference.month, local_reference.day, tzinfo=timezone.utc)
+
+
+def _forecast_window(frame: pd.DataFrame, days: int, expected_start: datetime) -> pd.DataFrame:
+    result = frame.copy()
+    result["ds"] = pd.to_datetime(result["ds"], errors="coerce")
+    result = result.dropna(subset=["ds"])
+    available_dates = sorted(result["ds"].dt.date.unique())
+    selected_dates = available_dates[:days]
+    selected = result[result["ds"].dt.date.isin(selected_dates)].copy()
+    date_map = {
+        source_date: expected_start.replace(tzinfo=None) + timedelta(days=index)
+        for index, source_date in enumerate(selected_dates)
+    }
+    selected["ds"] = selected["ds"].dt.date.map(date_map)
+    return selected
+
+
+def _standardize_forecasts(frame: pd.DataFrame, days: int) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for row in frame.to_dict(orient="records"):
+        record = standardize_forecast_record(row, horizon_days=days)
+        record["lower_bound"] = safe_float(row.get("yhat_lower"), default=None) if row.get("yhat_lower") is not None else None
+        record["upper_bound"] = safe_float(row.get("yhat_upper"), default=None) if row.get("yhat_upper") is not None else None
+        records.append(record)
+    return records
+
+
+def _planning_from_forecasts(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    for record in records:
+        level = normalize_demand_level(record["predicted_demand"])
+        result.append({
+            "zone_id": record["zone_id"],
+            "forecast_date": record["forecast_date"],
+            "predicted_demand": record["predicted_demand"],
+            "demand_level": level,
+            "estimated_required_vehicles": estimate_required_vehicles(record["predicted_demand"]),
+            "recommended_action": recommended_action_from_demand_level(level),
+        })
+    return result
+
+
+def _add_forecast_planning_fields(record: dict[str, Any]) -> dict[str, Any]:
+    result = dict(record)
+    predicted_demand = safe_float(result.get("predicted_demand"))
+    level = normalize_demand_level(predicted_demand)
+    result.update({
+        "predicted_demand": predicted_demand,
+        "demand_level": level,
+        "estimated_required_vehicles": estimate_required_vehicles(predicted_demand),
+        "recommended_action": recommended_action_from_demand_level(level),
+    })
+    return result
+
+
+async def import_artifact_forecasts_to_database(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    artifacts = load_demand_artifacts()
     zones_df = load_zone_metadata_csv()
     forecast_df = load_future_forecast_csv()
-    planning_df = load_fleet_planning_recommendations_csv()
+    expected_start = _current_forecast_start()
+    unique_dates = sorted(pd.to_datetime(forecast_df["ds"]).dt.date.unique())
+    forecast_df = _forecast_window(forecast_df, len(unique_dates), expected_start)
 
     for row in zones_df.to_dict(orient="records"):
         await _upsert_zone(row)
 
-    forecast_records = [standardize_forecast_record(row, horizon_days=30) for row in forecast_df.to_dict(orient="records")]
-    planning_records = [standardize_planning_record(row) for row in planning_df.to_dict(orient="records")]
+    forecast_records = _standardize_forecasts(forecast_df, len(unique_dates))
+    planning_records = _planning_from_forecasts(forecast_records)
+    validation = _validate_complete_run(
+        forecast_records,
+        planning_records,
+        expected_zone_ids=set(zones_df["zone_id"].astype(str)),
+        expected_days=len(unique_dates),
+        expected_start=expected_start,
+    )
     forecast_dates = [record["forecast_date"] for record in forecast_records]
+    request_fingerprint = _request_fingerprint(MODEL_VERSION, "artifact", len(unique_dates), expected_start)
     model_run_id = await _create_model_run(
         "artifact_import",
         records_generated=len(forecast_records),
         zones_count=len(zones_df),
         forecast_dates=forecast_dates,
         current_user=current_user,
+        horizon_days=len(unique_dates),
+        source_requested="artifact",
+        effective_source="artifact",
+        fallback_used=False,
+        request_fingerprint=request_fingerprint,
     )
 
-    for record in forecast_records:
-        await _upsert_forecast(record, model_run_id=model_run_id)
+    try:
+        await _persist_forecast_run(forecast_records, planning_records, model_run_id)
+        await _activate_complete_run(model_run_id, validation)
+    except Exception as exc:
+        await _mark_run_failed(model_run_id, exc)
+        raise
 
     alerts_created = 0
     for record in planning_records:
-        await _upsert_recommendation(record)
         if await _create_demand_alert_if_needed(record):
             alerts_created += 1
 
@@ -227,6 +597,8 @@ async def import_artifact_forecasts_to_database(current_user: dict[str, Any] | N
         "planning_records": len(planning_records),
         "alerts_created": alerts_created,
         "model_run_id": str(model_run_id),
+        "model_version": MODEL_VERSION,
+        "active_run": await _active_run_metadata(),
     }
 
 
@@ -256,9 +628,12 @@ async def list_forecasts(
     limit: int = 20,
 ) -> dict[str, Any]:
     page, limit = normalize_pagination(page, limit)
-    query: dict[str, Any] = {}
+    active_run_id = await get_active_run_id()
+    if active_run_id is None:
+        return {**build_pagination_response([], 0, page, limit), "active_run": None}
+    query: dict[str, Any] = {"model_run_id": active_run_id}
     if zone_id:
-        query["zone_id"] = source_zone_id(zone_id)
+        query["zone_id"] = operational_zone_id(zone_id)
     date_filter = _date_range_filter(start_date, end_date)
     if date_filter:
         query["forecast_date"] = date_filter
@@ -266,10 +641,10 @@ async def list_forecasts(
         if demand_level not in {"low", "medium", "high", "very_high"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid demand level")
         thresholds = {
-            "low": {"$lt": 25},
-            "medium": {"$gte": 25, "$lt": 50},
-            "high": {"$gte": 50, "$lt": 80},
-            "very_high": {"$gte": 80},
+            "low": {"$lte": 12},
+            "medium": {"$gt": 12, "$lte": 18},
+            "high": {"$gt": 18, "$lte": 25},
+            "very_high": {"$gt": 25},
         }
         query["predicted_demand"] = thresholds[demand_level]
 
@@ -277,20 +652,22 @@ async def list_forecasts(
     total = await collection.count_documents(query)
     cursor = collection.find(query).sort("forecast_date", 1).skip(calculate_skip(page, limit)).limit(limit)
     items = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=limit))]
-    return build_pagination_response(items, total, page, limit)
+    return {**build_pagination_response(items, total, page, limit), "active_run": await _active_run_metadata()}
 
 
 async def get_zone_forecast(zone_id: str, days: int = 30) -> dict[str, Any]:
     days = min(max(days, 1), 365)
-    source = source_zone_id(zone_id)
-    cursor = _db()[DEMAND_FORECAST_COLLECTION].find({"zone_id": source}).sort("forecast_date", 1).limit(days)
+    operational = operational_zone_id(zone_id)
+    active_run_id = await get_active_run_id()
+    query = {"model_run_id": active_run_id, "zone_id": operational} if active_run_id else {"_id": {"$exists": False}}
+    cursor = _db()[DEMAND_FORECAST_COLLECTION].find(query).sort("forecast_date", 1).limit(days)
     items = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=days))]
     return {
-        "zone_id": operational_zone_id(source),
-        "source_zone_id": source,
+        "zone_id": operational,
         "days": days,
         "data_context": DATA_CONTEXT,
         "items": items,
+        "active_run": await _active_run_metadata(),
     }
 
 
@@ -303,9 +680,12 @@ async def get_fleet_planning_recommendations(
     limit: int = 20,
 ) -> dict[str, Any]:
     page, limit = normalize_pagination(page, limit)
-    query: dict[str, Any] = {}
+    active_run_id = await get_active_run_id()
+    if active_run_id is None:
+        return {**build_pagination_response([], 0, page, limit), "active_run": None}
+    query: dict[str, Any] = {"model_run_id": active_run_id}
     if zone_id:
-        query["zone_id"] = source_zone_id(zone_id)
+        query["zone_id"] = operational_zone_id(zone_id)
     date_filter = _date_range_filter(start_date, end_date)
     if date_filter:
         query["forecast_date"] = date_filter
@@ -318,7 +698,7 @@ async def get_fleet_planning_recommendations(
     total = await collection.count_documents(query)
     cursor = collection.find(query).sort("forecast_date", 1).skip(calculate_skip(page, limit)).limit(limit)
     items = [enrich_zone_record(row) for row in serialize_mongo_list(await cursor.to_list(length=limit))]
-    return build_pagination_response(items, total, page, limit)
+    return {**build_pagination_response(items, total, page, limit), "active_run": await _active_run_metadata()}
 
 
 def _apply_graph_enhancement_to_forecast(baseline_df: pd.DataFrame, adjacency: dict[str, Any], alpha: float = 0.25) -> pd.DataFrame:
@@ -355,17 +735,17 @@ def _apply_graph_enhancement_to_forecast(baseline_df: pd.DataFrame, adjacency: d
 
 
 def _forecast_from_model_bundle(days: int) -> pd.DataFrame:
-    bundle = load_demand_model_bundle()
-    models = bundle.get("final_prophet_models") or {}
-    adjacency = bundle.get("adjacency") or {}
-    configuration = bundle.get("configuration") or {}
-    alpha = safe_float(configuration.get("alpha_spatial_influence"), default=0.25)
+    artifacts = load_demand_artifacts()
+    models = artifacts.models
+    adjacency = artifacts.adjacency
+    alpha = artifacts.spatial_alpha
+    forecast_start = _current_forecast_start().replace(tzinfo=None)
     if not models:
         raise DemandArtifactUnavailableError("Demand forecasting model bundle has no Prophet models", {"artifact_path": str(DEMAND_ARTIFACT_DIR)})
 
     baseline_rows: list[pd.DataFrame] = []
     for zone, model in models.items():
-        target_dates = pd.DataFrame({"ds": pd.date_range(start=pd.Timestamp.now(tz="UTC").tz_localize(None).normalize(), periods=days, freq="D")})
+        target_dates = pd.DataFrame({"ds": pd.date_range(start=forecast_start, periods=days, freq="D")})
         future_forecast = model.predict(target_dates).copy()
         future_forecast["zone_id"] = zone
         future_forecast["yhat"] = future_forecast["yhat"].clip(lower=0)
@@ -374,8 +754,37 @@ def _forecast_from_model_bundle(days: int) -> pd.DataFrame:
     return _apply_graph_enhancement_to_forecast(pd.concat(baseline_rows, ignore_index=True), adjacency, alpha=alpha)
 
 
-async def refresh_forecast_from_model(days: int = 30, save_to_database: bool = True, source: str = "artifact", current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    days = min(max(days, 1), 365)
+async def refresh_forecast_from_model(days: int = 30, save_to_database: bool = True, source: str = "model", current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    if days not in APPROVED_REFRESH_HORIZONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Demand forecast horizon must be exactly 7, 14, or 30 days",
+        )
+    artifacts = load_demand_artifacts()
+    expected_start = _current_forecast_start()
+    request_fingerprint = _request_fingerprint(MODEL_VERSION, source, days, expected_start)
+    if save_to_database:
+        reusable_run = await _reusable_active_run(request_fingerprint, source)
+        if reusable_run:
+            active = _run_metadata(reusable_run)
+            return {
+                "source_requested": source,
+                "fallback_used": False,
+                "fallback_reason": None,
+                "forecast_records": int(reusable_run.get("records_generated") or 0),
+                "planning_records": int(reusable_run.get("records_generated") or 0),
+                "alerts_created": 0,
+                "model_run_id": active["model_run_id"],
+                "model_version": MODEL_VERSION,
+                "request_fingerprint": request_fingerprint,
+                "reused_active_run": True,
+                "active_run": active,
+                "planning_window": active["planning_window"],
+                "items": [],
+                "data_context": DATA_CONTEXT,
+            }
+
+    expected_zones = set(artifacts.zone_metadata["zone_id"].astype(str))
     fallback_used = False
     fallback_reason = None
     if source == "model":
@@ -384,22 +793,50 @@ async def refresh_forecast_from_model(days: int = 30, save_to_database: bool = T
         except Exception as exc:
             fallback_used = True
             fallback_reason = str(exc)
-            forecast_df = load_future_forecast_csv().head(days * 10)
+            forecast_df = _forecast_window(load_future_forecast_csv(), days, expected_start)
     else:
-        forecast_df = load_future_forecast_csv().head(days * 10)
+        forecast_df = _forecast_window(load_future_forecast_csv(), days, expected_start)
 
-    forecast_records = [standardize_forecast_record(row, horizon_days=days) for row in forecast_df.to_dict(orient="records")]
-    planning_records = [
-        {
-            "zone_id": record["zone_id"],
-            "forecast_date": record["forecast_date"],
-            "predicted_demand": record["predicted_demand"],
-            "demand_level": normalize_demand_level(record["predicted_demand"]),
-            "estimated_required_vehicles": estimate_required_vehicles(record["predicted_demand"]),
-            "recommended_action": recommended_action_from_demand_level(normalize_demand_level(record["predicted_demand"])),
-        }
-        for record in forecast_records
-    ]
+    effective_source = "artifact_fallback" if fallback_used else source
+    effective_fingerprint = _request_fingerprint(MODEL_VERSION, effective_source, days, expected_start)
+    if save_to_database and fallback_used:
+        reusable_run = await _reusable_active_run(effective_fingerprint, effective_source)
+        if reusable_run:
+            active = _run_metadata(reusable_run)
+            return {
+                "source_requested": source,
+                "effective_source": effective_source,
+                "fallback_used": True,
+                "fallback_reason": fallback_reason,
+                "forecast_records": int(reusable_run.get("records_generated") or 0),
+                "planning_records": int(reusable_run.get("records_generated") or 0),
+                "alerts_created": 0,
+                "model_run_id": active["model_run_id"],
+                "model_version": MODEL_VERSION,
+                "request_fingerprint": effective_fingerprint,
+                "reused_active_run": True,
+                "active_run": active,
+                "planning_window": active["planning_window"],
+                "items": [],
+                "data_context": DATA_CONTEXT,
+            }
+
+    available_days = pd.to_datetime(forecast_df["ds"], errors="coerce").dt.date.nunique()
+    if available_days != days:
+        raise DemandArtifactUnavailableError(
+            "The approved forecast horizon cannot satisfy the requested refresh",
+            {"requested_days": days, "available_days": int(available_days), "model_version": MODEL_VERSION},
+        )
+
+    forecast_records = _standardize_forecasts(forecast_df, days)
+    planning_records = _planning_from_forecasts(forecast_records)
+    validation = _validate_complete_run(
+        forecast_records,
+        planning_records,
+        expected_zone_ids=expected_zones,
+        expected_days=days,
+        expected_start=expected_start,
+    )
 
     model_run_id = None
     alerts_created = 0
@@ -410,23 +847,37 @@ async def refresh_forecast_from_model(days: int = 30, save_to_database: bool = T
             zones_count=len({record["zone_id"] for record in forecast_records}),
             forecast_dates=[record["forecast_date"] for record in forecast_records],
             current_user=current_user,
-            status_value="partial" if fallback_used else "completed",
+            horizon_days=days,
+            source_requested=source,
+            effective_source=effective_source,
+            fallback_used=fallback_used,
+            request_fingerprint=effective_fingerprint,
         )
-        for record in forecast_records:
-            await _upsert_forecast(record, model_run_id=model_run_id)
+        try:
+            await _persist_forecast_run(forecast_records, planning_records, model_run_id)
+            await _activate_complete_run(model_run_id, validation)
+        except Exception as exc:
+            await _mark_run_failed(model_run_id, exc)
+            raise
         for record in planning_records:
-            await _upsert_recommendation(record)
             if await _create_demand_alert_if_needed(record):
                 alerts_created += 1
 
+    active = await _active_run_metadata() if model_run_id else None
     return {
         "source_requested": source,
+        "effective_source": effective_source,
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
         "forecast_records": len(forecast_records),
         "planning_records": len(planning_records),
         "alerts_created": alerts_created,
         "model_run_id": str(model_run_id) if model_run_id else None,
+        "model_version": MODEL_VERSION,
+        "request_fingerprint": effective_fingerprint,
+        "reused_active_run": False,
+        "active_run": active,
+        "planning_window": active.get("planning_window") if active else None,
         "items": [enrich_zone_record(record) for record in forecast_records[:50]],
         "data_context": DATA_CONTEXT,
     }
@@ -436,14 +887,16 @@ async def get_demand_dashboard_summary() -> dict[str, Any]:
     db = _db()
     forecast_collection = db[DEMAND_FORECAST_COLLECTION]
     recommendation_collection = db[FLEET_RECOMMENDATION_COLLECTION]
-    first_forecast = await forecast_collection.find_one({}, sort=[("forecast_date", 1)])
-    latest = await forecast_collection.find_one({}, sort=[("forecast_date", -1)])
+    active_run_id = await get_active_run_id()
+    active_filter = {"model_run_id": active_run_id} if active_run_id else {"_id": {"$exists": False}}
+    first_forecast = await forecast_collection.find_one(active_filter, sort=[("forecast_date", 1)])
+    latest = await forecast_collection.find_one(active_filter, sort=[("forecast_date", -1)])
     if first_forecast:
         window_start = first_forecast["forecast_date"]
         window_end = window_start + timedelta(days=7)
-        next_7_query = {"forecast_date": {"$gte": window_start, "$lt": window_end}}
+        next_7_query = {**active_filter, "forecast_date": {"$gte": window_start, "$lt": window_end}}
     else:
-        next_7_query = {"forecast_date": {"$exists": False}}
+        next_7_query = active_filter
 
     from app.services.operational_demand_service import forecast_vs_actual
     comparison = await forecast_vs_actual(
@@ -469,25 +922,25 @@ async def get_demand_dashboard_summary() -> dict[str, Any]:
     ).to_list(length=5)
     comparison_totals: dict[str, float] = {}
     for row in comparison_items:
-        comparison_totals[row["operational_zone_id"]] = comparison_totals.get(row["operational_zone_id"], 0.0) + row["final_predicted_demand"]
-    calibrated_top_zones = [
+        comparison_totals[row["operational_zone_id"]] = comparison_totals.get(row["operational_zone_id"], 0.0) + row["predicted_demand"]
+    active_top_zones = [
         enrich_zone_record({"zone_id": zone_id, "predicted_demand": total})
         for zone_id, total in sorted(comparison_totals.items(), key=lambda item: item[1], reverse=True)[:5]
     ]
     return {
-        "total_zones": len(SRI_LANKA_ZONE_ALIASES),
-        "forecast_records": await forecast_collection.count_documents({}),
+        "total_zones": len(operational_zone_options()),
+        "forecast_records": await forecast_collection.count_documents(active_filter),
         "high_demand_zones": len(high_zones),
         "very_high_demand_zones": len(very_high_zones),
-        "total_predicted_demand_next_7_days": sum(row["final_predicted_demand"] for row in comparison_items) if comparison_items else (demand_sum[0]["total"] if demand_sum else 0),
+        "total_predicted_demand_next_7_days": sum(row["predicted_demand"] for row in comparison_items) if comparison_items else (demand_sum[0]["total"] if demand_sum else 0),
         "total_required_vehicles_next_7_days": sum(row["estimated_required_vehicles"] for row in comparison_items) if comparison_items else (vehicles_sum[0]["total"] if vehicles_sum else 0),
-        "top_demand_zones": calibrated_top_zones or [
+        "top_demand_zones": active_top_zones or [
             enrich_zone_record({"zone_id": row["_id"], "predicted_demand": row["predicted_demand"]})
             for row in top_zones
         ],
         "latest_forecast_date": latest["forecast_date"].isoformat() if latest else None,
         "data_context": DATA_CONTEXT,
-        "data_context_note": "Sri Lanka demo scenario mapped from Olist-derived forecasting outputs; model has not been retrained using Sri Lankan demand data.",
+        "active_run": await _active_run_metadata(),
     }
 
 
@@ -507,9 +960,10 @@ async def get_zone_adjacency_graph() -> dict[str, Any]:
 
 
 async def export_forecasts_as_csv(zone_id: str | None = None, start_date: str | None = None, end_date: str | None = None) -> str:
-    query: dict[str, Any] = {}
+    active_run_id = await get_active_run_id()
+    query: dict[str, Any] = {"model_run_id": active_run_id} if active_run_id else {"_id": {"$exists": False}}
     if zone_id:
-        query["zone_id"] = source_zone_id(zone_id)
+        query["zone_id"] = operational_zone_id(zone_id)
     if start_date or end_date:
         query["forecast_date"] = {}
         if start_date:

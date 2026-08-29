@@ -19,10 +19,21 @@ Supervisor_Deliverables/
 # Local QA evidence and generated workspace output
 output/
 tmp/
+/.playwright-cli/
+/*.png
 audit-*.png
 phase*-*.png
 phone_*.png
 phone_*.xml
+
+# Local reference implementations, imported archives, and research workspaces
+/04th member component - load optimization/
+/model_imports/
+/notebooks/
+/synthetic_data/
+/PENDING_FEATURES_COMPARISON_SINHALA.md
+/PROJECT_USER_GUIDE_SINHALA.md
+/project phases.md
 
 # Python / FastAPI
 __pycache__/
@@ -35,6 +46,7 @@ __pycache__/
 htmlcov/
 venv/
 .venv/
+.venv-optimizer/
 env/
 ENV/
 
@@ -54,7 +66,6 @@ pnpm-debug.log*
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
-pubspec.lock
 Fleet_Mobile_App/frontend/build/
 Fleet_Mobile_App/frontend/.dart_tool/
 
@@ -75,6 +86,14 @@ Fleet_Mobile_App/frontend/.dart_tool/
 *.csv
 *.xlsx
 *.zip
+
+# Approved, hash-verified runtime bundle required by fresh backend clones.
+!backend/app/ml_artifacts/predictive_maintenance/fleetopt-sensor-free-pm-v1/*.joblib
+!backend/app/ml_artifacts/predictive_maintenance/fleetopt-sensor-free-pm-v1/maintenance_service_rules.csv
+!backend/app/ml_artifacts/demand_forecasting/fleetopt-demand-synthetic-v1/*.joblib
+!backend/app/ml_artifacts/demand_forecasting/fleetopt-demand-synthetic-v1/*.csv
+!backend/app/ml_artifacts/route_prediction/fleetopt-route-synthetic-v1/*.joblib
+backend/app/ml_artifacts/**/figures/
 
 # Logs and OS/editor files
 *.log

@@ -1,0 +1,194 @@
+{
+  "dataset": {
+    "rows": 27390,
+    "zones": 15,
+    "days_per_zone": 1826,
+    "start": "2021-04-02",
+    "end": "2026-04-01",
+    "total_non_cancelled_orders": 290963,
+    "total_cancelled_orders": 9037,
+    "mean_daily_zone_demand": 10.623
+  },
+  "split": {
+    "train": {
+      "rows": 21990,
+      "days": 1466,
+      "start": "2021-04-02",
+      "end": "2025-04-06"
+    },
+    "validation": {
+      "rows": 2700,
+      "days": 180,
+      "start": "2025-04-07",
+      "end": "2025-10-03"
+    },
+    "test": {
+      "rows": 2700,
+      "days": 180,
+      "start": "2025-10-04",
+      "end": "2026-04-01"
+    }
+  },
+  "raw_prophet": {
+    "mae": 2.8587,
+    "rmse": 3.6565,
+    "smape_pct": 24.2672
+  },
+  "selected_forecast": {
+    "mae": 2.8506,
+    "rmse": 3.6348,
+    "smape_pct": 24.1915,
+    "mae_improvement_vs_baseline": 0.2967
+  },
+  "seasonal_naive_baseline": {
+    "mae": 4.053,
+    "rmse": 5.2211,
+    "smape_pct": 34.2248
+  },
+  "spatial_alpha_validation": [
+    {
+      "alpha": 0.0,
+      "mae": 2.7833,
+      "rmse": 3.548,
+      "smape_pct": 25.5996
+    },
+    {
+      "alpha": 0.05,
+      "mae": 2.7771,
+      "rmse": 3.5377,
+      "smape_pct": 25.5498
+    },
+    {
+      "alpha": 0.1,
+      "mae": 2.773,
+      "rmse": 3.5302,
+      "smape_pct": 25.5177
+    },
+    {
+      "alpha": 0.15,
+      "mae": 2.7712,
+      "rmse": 3.5255,
+      "smape_pct": 25.5098
+    },
+    {
+      "alpha": 0.2,
+      "mae": 2.7713,
+      "rmse": 3.5237,
+      "smape_pct": 25.5202
+    },
+    {
+      "alpha": 0.25,
+      "mae": 2.7738,
+      "rmse": 3.5246,
+      "smape_pct": 25.5497
+    }
+  ],
+  "zones_beating_baseline": 15,
+  "zone_metrics": [
+    {
+      "zone_id": "LK_battaramulla",
+      "candidate_mae": 3.0325,
+      "baseline_mae": 4.7222,
+      "improvement_fraction": 0.3578
+    },
+    {
+      "zone_id": "LK_borella",
+      "candidate_mae": 3.0469,
+      "baseline_mae": 3.8889,
+      "improvement_fraction": 0.2165
+    },
+    {
+      "zone_id": "LK_colombo_central",
+      "candidate_mae": 3.2948,
+      "baseline_mae": 4.7444,
+      "improvement_fraction": 0.3055
+    },
+    {
+      "zone_id": "LK_dehiwala",
+      "candidate_mae": 2.8996,
+      "baseline_mae": 4.1056,
+      "improvement_fraction": 0.2937
+    },
+    {
+      "zone_id": "LK_kaduwela",
+      "candidate_mae": 2.3808,
+      "baseline_mae": 3.0556,
+      "improvement_fraction": 0.2208
+    },
+    {
+      "zone_id": "LK_kollupitiya",
+      "candidate_mae": 2.8191,
+      "baseline_mae": 4.0722,
+      "improvement_fraction": 0.3077
+    },
+    {
+      "zone_id": "LK_kotte",
+      "candidate_mae": 2.6397,
+      "baseline_mae": 3.9222,
+      "improvement_fraction": 0.327
+    },
+    {
+      "zone_id": "LK_malabe",
+      "candidate_mae": 2.8955,
+      "baseline_mae": 4.6278,
+      "improvement_fraction": 0.3743
+    },
+    {
+      "zone_id": "LK_moratuwa",
+      "candidate_mae": 2.5933,
+      "baseline_mae": 3.9167,
+      "improvement_fraction": 0.3379
+    },
+    {
+      "zone_id": "LK_mount_lavinia",
+      "candidate_mae": 2.6899,
+      "baseline_mae": 3.8833,
+      "improvement_fraction": 0.3073
+    },
+    {
+      "zone_id": "LK_nugegoda",
+      "candidate_mae": 3.1005,
+      "baseline_mae": 4.2778,
+      "improvement_fraction": 0.2752
+    },
+    {
+      "zone_id": "LK_piliyandala",
+      "candidate_mae": 2.4227,
+      "baseline_mae": 3.5889,
+      "improvement_fraction": 0.3249
+    },
+    {
+      "zone_id": "LK_rajagiriya",
+      "candidate_mae": 3.1886,
+      "baseline_mae": 4.2167,
+      "improvement_fraction": 0.2438
+    },
+    {
+      "zone_id": "LK_wattala",
+      "candidate_mae": 2.9039,
+      "baseline_mae": 3.7444,
+      "improvement_fraction": 0.2245
+    },
+    {
+      "zone_id": "LK_wellawatte",
+      "candidate_mae": 2.8511,
+      "baseline_mae": 4.0278,
+      "improvement_fraction": 0.2921
+    }
+  ],
+  "quality_gate": {
+    "candidate_pass": true,
+    "zone_coverage_pass": true,
+    "bundle_pass": true
+  },
+  "metadata": {
+    "model_version": "fleetopt-demand-synthetic-v1",
+    "training_data_version": "fleetopt-sim-v1",
+    "feature_schema_version": "2.0",
+    "validation_scope": "synthetic_research_mvp",
+    "split_strategy": "chronological_180_day_holdout",
+    "trained_at": "2026-08-28T10:09:10.454729+00:00",
+    "python_version": "3.13.15",
+    "scikit_learn_version": "1.6.1"
+  }
+}

@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
-from app.models.demand_model import DEMAND_LEVELS, DEMAND_REFRESH_SOURCES
+from app.models.demand_model import DEMAND_LEVELS
 from app.utils.validators import validate_choice, validate_non_empty
 
 
@@ -37,6 +37,7 @@ class DemandForecastListResponse(BaseModel):
     limit: int
     total: int
     pages: int
+    active_run: dict[str, Any] | None = None
 
 
 class ZoneForecastResponse(BaseModel):
@@ -53,6 +54,8 @@ class FleetPlanningRecommendationResponse(BaseModel):
     demand_level: str
     estimated_required_vehicles: int
     recommended_action: str
+    model_run_id: str | None = None
+    model_version: str | None = None
 
 
 class FleetPlanningRecommendationListResponse(BaseModel):
@@ -61,6 +64,7 @@ class FleetPlanningRecommendationListResponse(BaseModel):
     limit: int
     total: int
     pages: int
+    active_run: dict[str, Any] | None = None
 
 
 class DemandModelStatusResponse(BaseModel):
@@ -77,6 +81,30 @@ class DemandModelStatusResponse(BaseModel):
     planning_records: int
     metrics_snapshot: dict[str, Any]
     error: str | None = None
+    model_version: str | None = None
+    quality_passed: bool = False
+    degraded: bool = False
+    operational_state: str | None = None
+    active_run: dict[str, Any] | None = None
+
+
+class DemandComparisonItemResponse(BaseModel):
+    date: datetime
+    operational_zone_id: str
+    zone_display_name: str
+    predicted_demand: float
+    local_actual_demand: int | None = None
+    variance_orders: float | None = None
+    variance_percentage: float | None = None
+    baseline_forecast: float | None = None
+    lower_bound: float | None = None
+    upper_bound: float | None = None
+    demand_level: str
+    estimated_required_vehicles: int
+    recommended_action: str
+    model_version: str | None = None
+    generated_at: datetime | None = None
+    final_predicted_demand: float | None = None
 
 
 class DemandModelMetricsResponse(BaseModel):
@@ -86,14 +114,34 @@ class DemandModelMetricsResponse(BaseModel):
 
 
 class DemandForecastRefreshRequest(BaseModel):
-    days: int | None = Field(default=30, ge=1, le=365)
-    save_to_database: bool = True
-    source: Literal["artifact", "model"] = "artifact"
+    days: Literal[7, 14, 30] = 30
+    save_to_database: Literal[True] = True
+    source: Literal["model"] = "model"
 
-    @field_validator("source")
-    @classmethod
-    def validate_source(cls, value: str) -> str:
-        return validate_choice(value, DEMAND_REFRESH_SOURCES, "Refresh source")
+
+class DemandRunMetadataResponse(BaseModel):
+    model_run_id: str
+    run_type: str | None = None
+    model_version: str | None = None
+    status: str | None = None
+    horizon_days: int
+    source_requested: str | None = None
+    effective_source: str | None = None
+    fallback_used: bool = False
+    request_fingerprint: str | None = None
+    forecast_start_date: str | None = None
+    forecast_end_date: str | None = None
+    zones_count: int
+    records_generated: int
+    generated_at: str | None = None
+    activated_at: str | None = None
+    failed_at: str | None = None
+    planning_window: dict[str, Any]
+
+
+class DemandRunHistoryResponse(BaseModel):
+    items: list[DemandRunMetadataResponse]
+    limit: int
 
 
 class DemandForecastSummaryResponse(BaseModel):

@@ -96,6 +96,8 @@ class AssignedVehicle {
     required this.riskLevel,
     required this.riskSummary,
     required this.modelStatus,
+    this.category = 'unknown',
+    this.fuelType = 'electric',
   });
 
   final String id;
@@ -106,6 +108,23 @@ class AssignedVehicle {
   final String riskLevel;
   final String riskSummary;
   final String modelStatus;
+  final String category;
+  final String fuelType;
+
+  bool get supportsBatteryContext =>
+      fuelType == 'electric' || fuelType == 'hybrid';
+
+  String get energyIssueLabel => switch (fuelType) {
+    'electric' => 'Charging system condition',
+    'hybrid' => 'Charging or fuel system condition',
+    _ => 'Fuel system condition',
+  };
+
+  String get powertrainConditionLabel => switch (fuelType) {
+    'electric' => 'Electric drivetrain condition',
+    'hybrid' => 'Hybrid powertrain condition',
+    _ => 'Engine and drivetrain condition',
+  };
 
   factory AssignedVehicle.empty() {
     return const AssignedVehicle(
@@ -118,6 +137,8 @@ class AssignedVehicle {
       riskSummary:
           'No vehicle is currently assigned to this driver. Dispatch a route from the web dashboard to load vehicle risk details.',
       modelStatus: 'No assignment',
+      category: 'unknown',
+      fuelType: 'unknown',
     );
   }
 
@@ -126,6 +147,11 @@ class AssignedVehicle {
     final model = _stringValue(json['model'], 'Assigned EV');
     final displayModel = brand.isEmpty ? model : '$brand $model';
     final healthStatus = _stringValue(json['health_status'], 'unknown');
+    final vehicleType = _stringValue(json['vehicle_type'], 'other');
+    final fuelType = _stringValue(
+      json['fuel_type'],
+      vehicleType.split('_').first,
+    ).toLowerCase();
     return AssignedVehicle(
       id: _stringValue(json['id'], ''),
       number: _stringValue(
@@ -133,7 +159,7 @@ class AssignedVehicle {
         'Assigned vehicle',
       ),
       model: displayModel,
-      type: _stringValue(json['vehicle_type'], 'EV'),
+      type: vehicleType,
       mileage: _intValue(json['current_mileage'], 0),
       riskLevel: healthStatus,
       riskSummary: _stringValue(
@@ -141,6 +167,11 @@ class AssignedVehicle {
         'Vehicle assignment is loaded from the backend.',
       ),
       modelStatus: _stringValue(json['model_status'], healthStatus),
+      category: _stringValue(
+        json['vehicle_category'],
+        vehicleType.contains('_') ? vehicleType.split('_').last : vehicleType,
+      ).toLowerCase(),
+      fuelType: fuelType,
     );
   }
 }
@@ -157,6 +188,13 @@ class RouteStop {
     required this.latitude,
     required this.longitude,
     required this.status,
+    this.parcelCode = '',
+    this.customerPhone = '',
+    this.parcelWeightKg,
+    this.lengthCm,
+    this.widthCm,
+    this.heightCm,
+    this.handling = const [],
   });
 
   final String id;
@@ -169,6 +207,23 @@ class RouteStop {
   final double latitude;
   final double longitude;
   final DeliveryStatus status;
+  final String parcelCode;
+  final String customerPhone;
+  final double? parcelWeightKg;
+  final double? lengthCm;
+  final double? widthCm;
+  final double? heightCm;
+  final List<String> handling;
+
+  String get dimensionsLabel {
+    if (lengthCm == null || widthCm == null || heightCm == null) {
+      return 'Not recorded';
+    }
+    String value(double number) => number == number.roundToDouble()
+        ? number.toInt().toString()
+        : number.toStringAsFixed(1);
+    return '${value(lengthCm!)} x ${value(widthCm!)} x ${value(heightCm!)} cm';
+  }
 
   RouteStop copyWith({DeliveryStatus? status}) {
     return RouteStop(
@@ -182,10 +237,21 @@ class RouteStop {
       latitude: latitude,
       longitude: longitude,
       status: status ?? this.status,
+      parcelCode: parcelCode,
+      customerPhone: customerPhone,
+      parcelWeightKg: parcelWeightKg,
+      lengthCm: lengthCm,
+      widthCm: widthCm,
+      heightCm: heightCm,
+      handling: handling,
     );
   }
 
   factory RouteStop.fromJson(Map<String, dynamic> json) {
+    final dimensions = json['dimensions_cm'];
+    final dimensionMap = dimensions is Map<String, dynamic>
+        ? dimensions
+        : const <String, dynamic>{};
     return RouteStop(
       id: _stringValue(json['id'], ''),
       sequence: _intValue(json['sequence'], 0),
@@ -197,6 +263,28 @@ class RouteStop {
       latitude: _doubleValue(json['drop_latitude'], 0),
       longitude: _doubleValue(json['drop_longitude'], 0),
       status: deliveryStatusFromBackend(json['delivery_status']),
+      parcelCode: _stringValue(
+        json['parcel_code'],
+        _stringValue(json['id'], ''),
+      ),
+      customerPhone: _stringValue(json['customer_phone'], ''),
+      parcelWeightKg: json['parcel_weight_kg'] == null
+          ? null
+          : _doubleValue(json['parcel_weight_kg'], 0),
+      lengthCm: dimensionMap['length'] == null
+          ? null
+          : _doubleValue(dimensionMap['length'], 0),
+      widthCm: dimensionMap['width'] == null
+          ? null
+          : _doubleValue(dimensionMap['width'], 0),
+      heightCm: dimensionMap['height'] == null
+          ? null
+          : _doubleValue(dimensionMap['height'], 0),
+      handling: json['handling'] is List
+          ? (json['handling'] as List)
+                .map((value) => value.toString())
+                .toList(growable: false)
+          : const [],
     );
   }
 }
@@ -211,6 +299,9 @@ class DriverRoute {
     required this.totalDistanceKm,
     required this.eta,
     required this.stops,
+    this.status = 'dispatched',
+    this.deliveryDate = '',
+    this.deliveryPeriod = '',
   });
 
   final String id;
@@ -221,6 +312,10 @@ class DriverRoute {
   final double totalDistanceKm;
   final String eta;
   final List<RouteStop> stops;
+  final String status;
+  final String deliveryDate;
+  final String deliveryPeriod;
+  bool get isInProgress => status == 'in_progress';
 
   int get completedStops =>
       stops.where((stop) => stop.status == DeliveryStatus.delivered).length;
@@ -247,6 +342,9 @@ class DriverRoute {
       totalDistanceKm: totalDistanceKm,
       eta: eta,
       stops: stops ?? this.stops,
+      status: status,
+      deliveryDate: deliveryDate,
+      deliveryPeriod: deliveryPeriod,
     );
   }
 
@@ -260,6 +358,9 @@ class DriverRoute {
       totalDistanceKm: 0,
       eta: '--',
       stops: [],
+      status: 'unassigned',
+      deliveryDate: '',
+      deliveryPeriod: '',
     );
   }
 
@@ -288,6 +389,101 @@ class DriverRoute {
       totalDistanceKm: _doubleValue(route['total_distance_km'], 0),
       eta: etaMinutes > 0 ? '${etaMinutes.round()} min' : '--',
       stops: stops,
+      status: _stringValue(route['status'], 'dispatched'),
+      deliveryDate: _stringValue(route['delivery_date'], ''),
+      deliveryPeriod: _stringValue(route['delivery_period'], ''),
+    );
+  }
+}
+
+enum RouteGeometrySource { osrm, fallback }
+
+class RouteCoordinate {
+  const RouteCoordinate({required this.latitude, required this.longitude});
+
+  final double latitude;
+  final double longitude;
+
+  bool get isValid =>
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180 &&
+      (latitude != 0 || longitude != 0);
+}
+
+class RouteGeometry {
+  const RouteGeometry({
+    required this.routeId,
+    required this.source,
+    required this.points,
+    this.cached = false,
+  });
+
+  final String routeId;
+  final RouteGeometrySource source;
+  final List<RouteCoordinate> points;
+  final bool cached;
+
+  bool get hasRenderablePath => points.length >= 2;
+
+  factory RouteGeometry.fromJson(Map<String, dynamic> json) {
+    final geometry = json['geometry'];
+    final rawCoordinates = geometry is Map<String, dynamic>
+        ? geometry['coordinates']
+        : json['coordinates'];
+    final points = <RouteCoordinate>[];
+    if (rawCoordinates is List) {
+      for (final rawPoint in rawCoordinates) {
+        final double latitude;
+        final double longitude;
+        if (rawPoint is Map) {
+          latitude = _doubleValue(rawPoint['latitude'], double.nan);
+          longitude = _doubleValue(rawPoint['longitude'], double.nan);
+        } else if (rawPoint is List && rawPoint.length >= 2) {
+          longitude = _doubleValue(rawPoint[0], double.nan);
+          latitude = _doubleValue(rawPoint[1], double.nan);
+        } else {
+          continue;
+        }
+        final point = RouteCoordinate(latitude: latitude, longitude: longitude);
+        if (latitude.isFinite && longitude.isFinite && point.isValid) {
+          points.add(point);
+        }
+      }
+    }
+    return RouteGeometry(
+      routeId: _stringValue(json['route_id'], ''),
+      source: _stringValue(json['geometry_source'], 'fallback') == 'osrm'
+          ? RouteGeometrySource.osrm
+          : RouteGeometrySource.fallback,
+      points: List.unmodifiable(points),
+      cached: json['cached'] == true,
+    );
+  }
+
+  factory RouteGeometry.fallbackFor(DriverRoute route) {
+    final points = <RouteCoordinate>[];
+    final depot = RouteCoordinate(
+      latitude: route.depotLatitude,
+      longitude: route.depotLongitude,
+    );
+    if (depot.isValid) points.add(depot);
+
+    final orderedStops = [...route.stops]
+      ..sort((left, right) => left.sequence.compareTo(right.sequence));
+    for (final stop in orderedStops) {
+      final point = RouteCoordinate(
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+      );
+      if (point.isValid) points.add(point);
+    }
+    return RouteGeometry(
+      routeId: route.id,
+      source: RouteGeometrySource.fallback,
+      points: List.unmodifiable(points),
+      cached: false,
     );
   }
 }
@@ -295,38 +491,41 @@ class DriverRoute {
 class PreTripInspection {
   const PreTripInspection({
     required this.odometer,
-    required this.batterySoc,
+    this.batterySoc,
     required this.tireCondition,
     required this.brakeCondition,
-    required this.chargingCondition,
+    required this.powertrainCondition,
+    required this.chargingOrFuelIssue,
     required this.vehicleDamage,
     required this.dashboardWarning,
     required this.unusualNoise,
-    required this.unusualVibration,
+    required this.vibrationLevel,
     this.notes,
   });
 
   final double odometer;
-  final double batterySoc;
+  final double? batterySoc;
   final String tireCondition;
   final String brakeCondition;
-  final String chargingCondition;
+  final String powertrainCondition;
+  final String chargingOrFuelIssue;
   final String vehicleDamage;
   final String dashboardWarning;
   final String unusualNoise;
-  final String unusualVibration;
+  final String vibrationLevel;
   final String? notes;
 
   Map<String, dynamic> toJson() => {
     'odometer': odometer,
-    'battery_soc': batterySoc,
+    if (batterySoc != null) 'battery_soc': batterySoc,
     'tire_condition': tireCondition,
     'brake_condition': brakeCondition,
-    'charging_condition': chargingCondition,
+    'powertrain_condition': powertrainCondition,
+    'charging_or_fuel_issue': chargingOrFuelIssue,
     'vehicle_damage': vehicleDamage,
     'dashboard_warning': dashboardWarning,
     'unusual_noise': unusualNoise,
-    'unusual_vibration': unusualVibration,
+    'vibration_level': vibrationLevel,
     if (notes != null && notes!.trim().isNotEmpty) 'notes': notes!.trim(),
   };
 }
@@ -334,38 +533,41 @@ class PreTripInspection {
 class PostTripInspection {
   const PostTripInspection({
     required this.endingOdometer,
-    required this.endingBatterySoc,
-    required this.tireConditionChange,
-    required this.brakeConditionChange,
-    required this.chargingProblem,
+    this.endingBatterySoc,
+    required this.tireCondition,
+    required this.brakeCondition,
+    required this.powertrainCondition,
+    required this.chargingOrFuelIssue,
     required this.vehicleDamage,
     required this.dashboardWarning,
     required this.unusualNoise,
-    required this.unusualVibration,
+    required this.vibrationLevel,
     this.notes,
   });
 
   final double endingOdometer;
-  final double endingBatterySoc;
-  final String tireConditionChange;
-  final String brakeConditionChange;
-  final String chargingProblem;
+  final double? endingBatterySoc;
+  final String tireCondition;
+  final String brakeCondition;
+  final String powertrainCondition;
+  final String chargingOrFuelIssue;
   final String vehicleDamage;
   final String dashboardWarning;
   final String unusualNoise;
-  final String unusualVibration;
+  final String vibrationLevel;
   final String? notes;
 
   Map<String, dynamic> toJson() => {
     'ending_odometer': endingOdometer,
-    'ending_battery_soc': endingBatterySoc,
-    'tire_condition_change': tireConditionChange,
-    'brake_condition_change': brakeConditionChange,
-    'charging_problem': chargingProblem,
+    if (endingBatterySoc != null) 'ending_battery_soc': endingBatterySoc,
+    'tire_condition': tireCondition,
+    'brake_condition': brakeCondition,
+    'powertrain_condition': powertrainCondition,
+    'charging_or_fuel_issue': chargingOrFuelIssue,
     'vehicle_damage': vehicleDamage,
     'dashboard_warning': dashboardWarning,
     'unusual_noise': unusualNoise,
-    'unusual_vibration': unusualVibration,
+    'vibration_level': vibrationLevel,
     if (notes != null && notes!.trim().isNotEmpty) 'notes': notes!.trim(),
   };
 }
@@ -555,6 +757,7 @@ class TripReadiness {
     required this.routeDistanceKm,
     required this.warnings,
     required this.blockingReasons,
+    this.reviewStatus = 'not_required',
   });
 
   final bool canStart;
@@ -567,6 +770,10 @@ class TripReadiness {
   final double routeDistanceKm;
   final List<String> warnings;
   final List<String> blockingReasons;
+  final String reviewStatus;
+
+  bool get hasPendingEngineeringReview =>
+      reviewStatus == 'pending' || reviewStatus == 'confirmed';
 
   factory TripReadiness.empty() => const TripReadiness(
     canStart: false,
@@ -579,6 +786,7 @@ class TripReadiness {
     routeDistanceKm: 0,
     warnings: [],
     blockingReasons: ['No dispatched route and vehicle are assigned'],
+    reviewStatus: 'not_required',
   );
 
   factory TripReadiness.fromJson(Map<String, dynamic> json) {
@@ -599,6 +807,7 @@ class TripReadiness {
       routeDistanceKm: _doubleValue(json['route_distance_km'], 0),
       warnings: values(json['warnings']),
       blockingReasons: values(json['blocking_reasons']),
+      reviewStatus: _stringValue(json['review_status'], 'not_required'),
     );
   }
 }

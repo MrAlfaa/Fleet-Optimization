@@ -13,6 +13,13 @@ class MockDriverService implements DriverDataService {
     stops: [
       RouteStop(
         id: 'stop-1',
+        parcelCode: 'QA-PARCEL-001',
+        customerPhone: '0771234567',
+        parcelWeightKg: 12.5,
+        lengthCm: 60,
+        widthCm: 40,
+        heightCm: 35,
+        handling: ['Fragile', 'Do not tilt'],
         sequence: 1,
         customer: 'District Center Alpha',
         address: '220 Lake Drive, Colombo Central',
@@ -105,13 +112,20 @@ class MockDriverService implements DriverDataService {
       riskLevel: 'medium',
       riskSummary:
           'Brake pads show elevated wear. Avoid extended high-load dispatch.',
-      modelStatus: 'Placeholder baseline',
+      modelStatus: 'Maintenance monitoring active',
+      category: 'truck',
+      fuelType: 'diesel',
     );
   }
 
   @override
   Future<DriverRoute?> getTodayRoute() async {
     return _route;
+  }
+
+  @override
+  Future<RouteGeometry> getRouteGeometry(String routeId) async {
+    return RouteGeometry.fallbackFor(_route);
   }
 
   @override
@@ -151,6 +165,7 @@ class MockDriverService implements DriverDataService {
       routeDistanceKm: 86.4,
       warnings: ['Maintenance monitoring required during this route'],
       blockingReasons: [],
+      reviewStatus: 'not_required',
     );
   }
 

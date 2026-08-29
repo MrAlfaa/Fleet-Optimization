@@ -27,6 +27,19 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _revoked_device_slot(device_id: Any) -> str:
+    return f"revoked:{device_id}"
+
+
+def _bulk_device_revocation_update(now: Any, revoked_by: ObjectId) -> list[dict[str, Any]]:
+    return [{"$set": {
+        "status": "revoked",
+        "revoked_at": now,
+        "revoked_by": revoked_by,
+        "active_slot": {"$concat": ["revoked:", {"$toString": "$_id"}]},
+    }}]
+
+
 def _driver_token(user: dict[str, Any], device: dict[str, Any]) -> str:
     return create_token_for_user(
         user,
@@ -133,7 +146,7 @@ async def reset_driver_device(driver_id: str, temporary_password: str, admin_use
     now = utc_now()
     await _db()[DRIVER_DEVICE_COLLECTION].update_many(
         {"user_id": object_id, "status": "active"},
-        {"$set": {"status": "revoked", "revoked_at": now, "revoked_by": validate_object_id(admin_user["id"])}, "$unset": {"active_slot": ""}},
+        _bulk_device_revocation_update(now, validate_object_id(admin_user["id"])),
     )
     await _db()[USER_COLLECTION].update_one(
         {"_id": object_id},
@@ -209,7 +222,7 @@ async def validate_driver_device_claims(user: dict[str, Any], payload: dict[str,
 async def revoke_current_device(current_user: dict[str, Any], device_id: str) -> None:
     await _db()[DRIVER_DEVICE_COLLECTION].update_one(
         {"_id": validate_object_id(device_id), "user_id": validate_object_id(current_user["id"])},
-        {"$set": {"status": "revoked", "revoked_at": utc_now()}, "$unset": {"active_slot": ""}},
+        {"$set": {"status": "revoked", "revoked_at": utc_now(), "active_slot": _revoked_device_slot(device_id)}},
     )
 
 

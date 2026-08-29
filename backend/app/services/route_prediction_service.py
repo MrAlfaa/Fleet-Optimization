@@ -1,4 +1,5 @@
 import re
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -18,6 +19,7 @@ from app.utils.route_utils import calculate_route_cost, delay_risk_level_from_pr
 
 ROUTE_ALLOWED_ROLES = ["admin", "fleet_manager", "route_planner"]
 ROUTE_DRIVER_VIEW_ROLES = ["admin", "fleet_manager", "route_planner", "driver"]
+logger = logging.getLogger(__name__)
 
 
 def get_model_status() -> dict[str, Any]:
@@ -52,17 +54,15 @@ def prepare_route_input(input_data: dict[str, Any]) -> pd.DataFrame:
         )
 
     normalized = {
-        "store_latitude": input_data.get("pickup_latitude"),
-        "store_longitude": input_data.get("pickup_longitude"),
-        "drop_latitude": input_data.get("drop_latitude"),
-        "drop_longitude": input_data.get("drop_longitude"),
         "weather": input_data.get("weather") or "Cloudy",
-        "traffic": input_data.get("traffic") or "Medium",
-        "vehicle": input_data.get("vehicle") or input_data.get("vehicle_type") or "electric_van",
-        "area": input_data.get("area") or "urban",
-        "category": input_data.get("category") or "parcel",
-        "agent_age_num": input_data.get("agent_age_num") or input_data.get("agent_age") or 32,
-        "agent_rating_num": input_data.get("agent_rating_num") or input_data.get("agent_rating") or 4.6,
+        "traffic_level": input_data.get("traffic_level") or input_data.get("traffic") or "Medium",
+        "vehicle_category": input_data.get("vehicle_category") or input_data.get("vehicle_type") or "van",
+        "fuel_type": input_data.get("fuel_type") or "electric",
+        "area_type": input_data.get("area_type") or input_data.get("area") or "urban",
+        "road_class": input_data.get("road_class") or "primary",
+        "origin_zone_id": input_data.get("origin_zone_id") or "colombo_central",
+        "destination_zone_id": input_data.get("destination_zone_id") or "colombo_central",
+        "priority": input_data.get("priority") or "medium",
     }
     normalized.update({k: v for k, v in input_data.items() if v is not None})
 
@@ -114,7 +114,8 @@ def predict_route_segment(input_data: dict[str, Any]) -> dict[str, Any]:
     else:
         delay_probability = float(delay_model.predict(frame)[0])
     delay_probability = max(0.0, min(delay_probability, 1.0))
-    delay_prediction = int(delay_probability >= 0.5)
+    threshold = float(bundle.get("delay_threshold") or (load_route_schema() or {}).get("delay_threshold") or 0.5)
+    delay_prediction = int(delay_probability >= threshold)
     risk_level = delay_risk_level_from_probability(delay_probability)
     distance_km = haversine_distance_km(
         input_data["pickup_latitude"],
@@ -164,5 +165,6 @@ def calculate_segment_cost(input_data: dict[str, Any], use_ml_cost: bool = True)
         return fallback_segment_prediction(input_data), False
     try:
         return predict_route_segment(input_data), True
-    except RouteArtifactUnavailableError:
+    except Exception as exc:  # The optimizer must remain usable when an artifact or inference step fails.
+        logger.warning("Route model inference failed; using distance fallback: %s", exc)
         return fallback_segment_prediction(input_data), False

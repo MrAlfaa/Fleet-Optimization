@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Filter, Plus, RadioTower } from 'lucide-react'
-import { GoogleMapPanel } from '../components/GoogleMapPanel'
+import { OpenStreetMapPanel } from '../components/OpenStreetMapPanel'
 import { Card, EmptyState, ErrorState, LoadingState, PageHeader, PrimaryButton, SecondaryButton, StatusBadge } from '../components/UI'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { operationsService } from '../services/operationsService'
@@ -60,7 +60,7 @@ export function LiveTripsPage() {
       />
       <div className="grid gap-5 xl:grid-cols-[1fr_430px]">
         <Card action={<div className="flex gap-2"><StatusBadge tone="green">{activeCount} Live</StatusBadge><StatusBadge tone="amber">{Number(data.summary.pending_deliveries ?? 0)} Pending</StatusBadge></div>} title="Live Fleet Map">
-          <GoogleMapPanel
+          <OpenStreetMapPanel
             className="min-h-[760px]"
             markers={mapMarkers}
             polylines={trailPath.length > 1 ? [{ id: 'latest-driver-trail', path: trailPath, color: '#16A34A' }] : []}
@@ -77,7 +77,7 @@ export function LiveTripsPage() {
                 <div className="text-fleet-muted">{latestTrip.latestLocation ? `${latestTrip.latestLocation.latitude.toFixed(4)}, ${latestTrip.latestLocation.longitude.toFixed(4)}` : 'Waiting for GPS'}</div>
               </div>
             )}
-          </GoogleMapPanel>
+          </OpenStreetMapPanel>
         </Card>
         <aside className="space-y-5">
           <Card title="Route Summary">

@@ -1,14 +1,251 @@
-import { X } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
-import { fleetService } from '../services/fleetService'
-import type { MaintenanceRecord, Vehicle, VehiclePart } from '../types'
-import { PrimaryButton, SecondaryButton } from './UI'
-import { ModalBody, ModalFooter, ModalHeader, ModalPanel, ModalViewport } from './ModalLayout'
+import { X } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { fleetService } from "../services/fleetService";
+import type { MaintenanceRecord, Vehicle, VehiclePart } from "../types";
+import {
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  ModalPanel,
+  ModalViewport,
+} from "./ModalLayout";
+import { PrimaryButton, SecondaryButton } from "./UI";
+import { maintenanceSystemOptions } from "../features/maintenance/options";
 
-export function MaintenanceRecordDialog({ vehicle, part, record, onClose, onSaved }: { vehicle: Vehicle; part?: VehiclePart | null; record?: MaintenanceRecord | null; onClose: () => void; onSaved: () => void }) {
-  const [busy, setBusy] = useState(false); const [error, setError] = useState('')
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setBusy(true); setError(''); const form = new FormData(event.currentTarget); const payload = { vehicle_id: vehicle.id, part_id: part?.id, part_name: String(form.get('part_name') || ''), maintenance_type: String(form.get('maintenance_type') || 'inspection'), issue_type: String(form.get('issue_type') || ''), service_date: String(form.get('service_date') || ''), mileage_at_service: Number(form.get('mileage') || vehicle.mileage), technician_name: String(form.get('technician') || '') || undefined, cost: Number(form.get('cost') || 0), priority: String(form.get('priority') || 'medium'), notes: String(form.get('notes') || '') || undefined }; try { if (record) await fleetService.updateMaintenance(record.id, payload); else await fleetService.createMaintenanceRecord(payload); await onSaved(); onClose() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to save maintenance record') } finally { setBusy(false) } }
-  return <ModalViewport><ModalPanel aria-modal="true" className="max-w-2xl" role="dialog"><form className="contents" onSubmit={submit}><ModalHeader className="flex justify-between"><div><h2 className="text-xl font-extrabold">{record ? 'Edit maintenance record' : 'Create maintenance record'}</h2><p className="text-sm text-slate-500">{vehicle.registrationNumber}</p></div><button aria-label="Close maintenance form" onClick={onClose} type="button"><X /></button></ModalHeader><ModalBody className="grid gap-4 sm:grid-cols-2"><Field defaultValue={part?.name ?? record?.partName} label="Part" name="part_name" /><Select defaultValue={record?.maintenanceType ?? 'inspection'} label="Maintenance type" name="maintenance_type" options={['inspection','preventive','predictive','corrective','replacement']} /><Field defaultValue={record?.service ?? ''} label="Issue / service description" name="issue_type" /><Field defaultValue={new Date().toISOString().slice(0,10)} label="Service date" name="service_date" type="date" /><Field defaultValue={vehicle.mileage} label="Mileage" name="mileage" type="number" /><Field defaultValue={record?.technician} label="Technician" name="technician" /><Field defaultValue={record?.costValue} label="Cost" name="cost" type="number" /><Select defaultValue={record?.priority ?? 'medium'} label="Priority" name="priority" options={['low','medium','high','critical']} /><label className="sm:col-span-2 text-sm font-bold text-slate-600">Notes<textarea className="mt-2 min-h-24 w-full rounded-lg border p-3" name="notes" /></label>{error && <p className="sm:col-span-2 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}</ModalBody><ModalFooter><SecondaryButton onClick={onClose}>Cancel</SecondaryButton><PrimaryButton disabled={busy} type="submit">{busy ? 'Saving...' : 'Save record'}</PrimaryButton></ModalFooter></form></ModalPanel></ModalViewport>
+interface Props {
+  vehicle: Vehicle;
+  part?: VehiclePart | null;
+  record?: MaintenanceRecord | null;
+  predictionReviewId?: string;
+  onClose: () => void;
+  onSaved: () => void;
 }
-function Field({ label, name, defaultValue, type='text' }: { label: string; name: string; defaultValue?: string | number; type?: string }) { return <label className="text-sm font-bold text-slate-600">{label}<input className="mt-2 min-h-11 w-full rounded-lg border px-3" defaultValue={defaultValue} name={name} required type={type} /></label> }
-function Select({ label, name, options, defaultValue }: { label: string; name: string; options: string[]; defaultValue: string }) { return <label className="text-sm font-bold text-slate-600">{label}<select className="mt-2 min-h-11 w-full rounded-lg border px-3 capitalize" defaultValue={defaultValue} name={name}>{options.map((option)=><option key={option} value={option}>{option.replaceAll('_',' ')}</option>)}</select></label> }
+
+export function MaintenanceRecordDialog({
+  vehicle,
+  part,
+  record,
+  predictionReviewId,
+  onClose,
+  onSaved,
+}: Props) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const payload = {
+      vehicle_id: vehicle.id,
+      part_id: part?.id,
+      part_name: String(form.get("part_name") || ""),
+      maintenance_type: String(form.get("maintenance_type") || "inspection"),
+      maintenance_system: String(form.get("maintenance_system") || maintenanceSystemOptions[0].value),
+      event_kind: String(form.get("event_kind") || "inspection"),
+      prediction_review_id: predictionReviewId,
+      issue_type: String(form.get("issue_type") || ""),
+      service_date: String(form.get("service_date") || ""),
+      mileage_at_service: Number(form.get("mileage") || vehicle.mileage),
+      technician_name: String(form.get("technician") || "") || undefined,
+      cost: Number(form.get("cost") || 0),
+      priority: String(form.get("priority") || "medium"),
+      notes: String(form.get("notes") || "") || undefined,
+    };
+    try {
+      if (record) await fleetService.updateMaintenance(record.id, payload);
+      else await fleetService.createMaintenanceRecord(payload);
+      await onSaved();
+      onClose();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to save maintenance record",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalViewport>
+      <ModalPanel aria-modal="true" className="max-w-2xl" role="dialog">
+        <form className="contents" onSubmit={submit}>
+          <ModalHeader className="flex justify-between">
+            <div>
+              <h2 className="text-xl font-extrabold">
+                {record
+                  ? "Edit maintenance record"
+                  : "Create maintenance record"}
+              </h2>
+              <p className="text-sm text-slate-500">
+                {vehicle.registrationNumber}
+                {predictionReviewId ? " · Linked engineering review" : ""}
+              </p>
+            </div>
+            <button
+              aria-label="Close maintenance form"
+              onClick={onClose}
+              type="button"
+            >
+              <X />
+            </button>
+          </ModalHeader>
+          <ModalBody className="grid gap-4 sm:grid-cols-2">
+            <Field
+              defaultValue={part?.name ?? record?.partName}
+              label="Part"
+              name="part_name"
+            />
+            <Select
+              defaultValue={record?.maintenanceSystem ?? maintenanceSystemOptions[0].value}
+              label="Maintenance system"
+              name="maintenance_system"
+              options={maintenanceSystemOptions.map((option) => option.value)}
+            />
+            <Select
+              defaultValue={record?.eventKind ?? "inspection"}
+              label="Event kind"
+              name="event_kind"
+              options={EVENT_KINDS}
+            />
+            <Select
+              defaultValue={record?.maintenanceType ?? "inspection"}
+              label="Maintenance type"
+              name="maintenance_type"
+              options={[
+                "inspection",
+                "preventive",
+                "predictive",
+                "corrective",
+                "replacement",
+              ]}
+            />
+            <Field
+              defaultValue={record?.service ?? ""}
+              label="Issue / service description"
+              name="issue_type"
+            />
+            <Field
+              defaultValue={record?.serviceDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)}
+              label="Service date"
+              name="service_date"
+              type="date"
+            />
+            <Field
+              defaultValue={vehicle.mileage}
+              label="Mileage"
+              name="mileage"
+              type="number"
+            />
+            <Field
+              defaultValue={record?.technician}
+              label="Technician"
+              name="technician"
+            />
+            <Field
+              defaultValue={record?.costValue}
+              label="Cost"
+              name="cost"
+              type="number"
+            />
+            <Select
+              defaultValue={record?.priority ?? "medium"}
+              label="Priority"
+              name="priority"
+              options={["low", "medium", "high", "critical"]}
+            />
+            <label className="text-sm font-bold text-slate-600 sm:col-span-2">
+              Notes
+              <textarea
+                className="mt-2 min-h-24 w-full rounded-lg border p-3"
+                name="notes"
+              />
+            </label>
+            {error && (
+              <p className="rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700 sm:col-span-2">
+                {error}
+              </p>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+            <PrimaryButton disabled={busy} type="submit">
+              {busy ? "Saving..." : "Save record"}
+            </PrimaryButton>
+          </ModalFooter>
+        </form>
+      </ModalPanel>
+    </ModalViewport>
+  );
+}
+
+function Field({
+  label,
+  name,
+  defaultValue,
+  type = "text",
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | number;
+  type?: string;
+}) {
+  return (
+    <label className="text-sm font-bold text-slate-600">
+      {label}
+      <input
+        className="mt-2 min-h-11 w-full rounded-lg border px-3"
+        defaultValue={defaultValue}
+        name={name}
+        required
+        type={type}
+      />
+    </label>
+  );
+}
+
+function Select({
+  label,
+  name,
+  options,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  options: string[];
+  defaultValue: string;
+}) {
+  return (
+    <label className="text-sm font-bold text-slate-600">
+      {label}
+      <select
+        className="mt-2 min-h-11 w-full rounded-lg border px-3"
+        defaultValue={defaultValue}
+        name={name}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {optionLabel(option)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+const EVENT_KINDS = [
+  "scheduled_service",
+  "corrective_repair",
+  "breakdown",
+  "inspection",
+];
+
+function optionLabel(option: string) {
+  if (option === "predictive") return "Condition Based";
+  return option
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}

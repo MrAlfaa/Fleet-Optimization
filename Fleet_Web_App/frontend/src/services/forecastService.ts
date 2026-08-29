@@ -1,4 +1,4 @@
-import type { DemandForecast, DemandZone, OperationalZoneOption, PaginatedResponse } from '../types'
+import type { DemandForecast, DemandForecastHorizon, DemandForecastRefreshResponse, DemandForecastRun, DemandForecastRunDetail, DemandModelStatus, DemandZone, OperationalZoneOption, PaginatedResponse } from '../types'
 import { apiClient } from './apiClient'
 import { mapDemandForecast, mapDemandZone } from './adapters'
 
@@ -50,8 +50,8 @@ export const forecastService = {
       predicted: forecast.predictedVolume,
     }))
   },
-  async getModelStatus(): Promise<RecordLike> {
-    return apiClient.get<RecordLike>('/demand/model/status')
+  async getModelStatus(): Promise<DemandModelStatus> {
+    return apiClient.get<DemandModelStatus>('/demand/model/status')
   },
   async getModelMetrics(): Promise<RecordLike> {
     return apiClient.get<RecordLike>('/demand/model/metrics')
@@ -62,12 +62,22 @@ export const forecastService = {
   async importArtifacts(): Promise<RecordLike> {
     return apiClient.post<RecordLike>('/demand/import-artifacts')
   },
-  async refreshForecast(days = 30, source: 'artifact' | 'model' = 'artifact'): Promise<RecordLike> {
-    return apiClient.post<RecordLike>('/demand/refresh', {
+  async generateForecast(days: DemandForecastHorizon): Promise<DemandForecastRefreshResponse> {
+    return apiClient.post<DemandForecastRefreshResponse>('/demand/refresh', {
       days,
       save_to_database: true,
-      source,
+      source: 'model',
     })
+  },
+  async listForecastRuns(limit = 10): Promise<DemandForecastRun[]> {
+    const data = await apiClient.get<{ items: DemandForecastRun[] }>('/demand/runs', { query: { limit } })
+    return data.items
+  },
+  async getForecastRun(runId: string): Promise<DemandForecastRunDetail> {
+    const data = await apiClient.get<{ run: DemandForecastRun; items: RecordLike[]; total: number }>(`/demand/runs/${runId}`, {
+      query: { page: 1, limit: 500 },
+    })
+    return { run: data.run, items: data.items.map(mapDemandForecast), total: data.total }
   },
   async getOperationalContext(date?: string) {
     return apiClient.get<{ date: string; holiday_name: string | null; is_holiday: boolean; rain_probability: number | null; weather_label: string; artifact_source: string; last_refresh_at: string | null }>('/operations/context', { query: { date } })

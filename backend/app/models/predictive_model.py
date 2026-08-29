@@ -11,7 +11,10 @@ from app.utils.object_id import serialize_mongo_document
 PREDICTION_COLLECTION = "maintenance_predictions"
 
 PREDICTION_RISK_LEVELS = {"low", "medium", "high", "critical"}
-PREDICTION_INPUT_SOURCES = {"manual", "simulated", "imported", "api"}
+PREDICTION_INPUT_SOURCES = {
+    "manual", "simulated", "imported", "api", "manual_recalculation",
+    "driver_pre_trip", "driver_post_trip", "maintenance_completed", "vehicle_updated",
+}
 
 
 def build_prediction_document(data: dict[str, Any]) -> dict[str, Any]:
@@ -23,9 +26,23 @@ def build_prediction_document(data: dict[str, Any]) -> dict[str, Any]:
         "input_features": data["input_features"],
         "failure_prediction": int(data["failure_prediction"]),
         "failure_probability": float(data["failure_probability"]),
+        "failure_probability_30_days": float(data.get("failure_probability_30_days", data["failure_probability"])),
+        "failure_probability_2000_km": data.get("failure_probability_2000_km"),
         "risk_level": data["risk_level"],
         "maintenance_type_id": data.get("maintenance_type_id"),
         "maintenance_type_name": data.get("maintenance_type_name"),
+        "system_risks": list(data.get("system_risks") or []),
+        "normalized_risk": data.get("normalized_risk"),
+        "planning_status": data.get("planning_status"),
+        "planning_window": data.get("planning_window"),
+        "review_status": data.get("review_status", "not_required"),
+        "dispatch_hold": bool(data.get("dispatch_hold", False)),
+        "feature_snapshot_id": data.get("feature_snapshot_id"),
+        "feature_hash": data.get("feature_hash"),
+        "feature_schema_version": data.get("feature_schema_version"),
+        "data_quality": data.get("data_quality"),
+        "defaulted_fields": list(data.get("defaulted_fields") or []),
+        "policy_decision": data.get("policy_decision"),
         "predicted_rul": data.get("predicted_rul"),
         "rul_unit": data.get("rul_unit"),
         "next_maintenance_date": data.get("next_maintenance_date"),
@@ -52,5 +69,6 @@ async def ensure_prediction_indexes() -> None:
         await collection.create_index([("part_id", ASCENDING)], name="prediction_part_id")
         await collection.create_index([("risk_level", ASCENDING)], name="prediction_risk_level")
         await collection.create_index([("created_at", DESCENDING)], name="prediction_created_at")
+        await collection.create_index([("vehicle_id", ASCENDING), ("feature_hash", ASCENDING)], name="prediction_vehicle_feature_hash")
     except PyMongoError:
         return

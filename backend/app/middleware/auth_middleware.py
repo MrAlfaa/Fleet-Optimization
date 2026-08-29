@@ -23,16 +23,19 @@ async def get_current_user(
 
 def require_roles(allowed_roles: list[str]) -> Callable:
     async def dependency(request: Request, user: dict = Depends(get_current_user)) -> dict:
-        if user["role"] not in allowed_roles:
+        required_permission = permission_for_request(request.url.path, request.method)
+        if required_permission:
+            if user.get("role") != "admin" and required_permission not in user.get("permissions", []):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Permission required: {required_permission}",
+                )
+        elif user["role"] not in allowed_roles:
+            # Identity-specific and legacy endpoints without a catalogue mapping
+            # retain their explicit role contract.
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient role permissions",
-            )
-        required_permission = permission_for_request(request.url.path, request.method)
-        if required_permission and required_permission not in user.get("permissions", []):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission required: {required_permission}",
             )
         return user
 
