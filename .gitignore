@@ -26,6 +26,15 @@ phase*-*.png
 phone_*.png
 phone_*.xml
 
+# Clean source branches exclude test and QA-only files
+backend/tests/
+Fleet_Mobile_App/frontend/test/
+Fleet_Web_App/frontend/src/test/
+Fleet_Web_App/frontend/src/**/*.test.ts
+Fleet_Web_App/frontend/src/**/*.test.tsx
+backend/scripts/verify_member_load_fixture.py
+backend/scripts/seed_system_test_data.py
+
 # Local reference implementations, imported archives, and research workspaces
 /04th member component - load optimization/
 /model_imports/
