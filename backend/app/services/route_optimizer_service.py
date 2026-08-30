@@ -23,7 +23,7 @@ from app.services.delivery_service import get_raw_delivery_order_by_id, update_d
 from app.services.demand_forecasting_service import get_active_run_id
 from app.services.fleet_intelligence_service import validate_vehicle_assignment, validate_vehicle_for_planning
 from app.services.driver_device_service import validate_driver_for_assignment
-from app.services.route_prediction_service import calculate_segment_cost
+# from app.services.route_prediction_service import calculate_segment_cost
 from app.services.operational_context_service import get_weather_context
 from app.services.vehicle_service import get_vehicle_by_id
 from app.services.load_optimization_service import validate_route_handoff
