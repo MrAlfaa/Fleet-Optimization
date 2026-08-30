@@ -24,7 +24,9 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/+$/, '')
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'https://137-23-38-111.sslip.io/api'
+).replace(/\/+$/, '')
 
 function buildUrl(path: string, query?: RequestOptions['query']) {
   const cleanPath = path.startsWith('/') ? path : `/${path}`

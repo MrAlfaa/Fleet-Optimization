@@ -31,7 +31,9 @@ const asNumber = (value: unknown, fallback = 0) => {
   return fallback
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/+$/, '')
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'https://137-23-38-111.sslip.io/api'
+).replace(/\/+$/, '')
 
 function mediaUrl(value: unknown): string | null {
   const path = asString(value)
