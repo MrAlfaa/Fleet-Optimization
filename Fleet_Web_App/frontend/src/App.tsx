@@ -29,6 +29,7 @@ import { FleetReadinessPage } from './pages/FleetReadinessPage'
 import { DriverManagementPage } from './pages/DriverManagementPage'
 import { UserManagementPage } from './pages/UserManagementPage'
 import { canAccess } from './utils/permissions'
+import { LicenseGate } from './components/LicenseGate'
 
 function PermissionRoute({ permission, children }: { permission: string; children: React.ReactNode }) {
   return canAccess(authService.getSession(), permission) ? children : <Navigate replace to="/unauthorized" />
@@ -103,8 +104,9 @@ function WorkspaceLoader() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
+    <LicenseGate>
+      <BrowserRouter>
+        <Routes>
         <Route element={<AuthPage mode="login" />} path="/login" />
         <Route element={<Navigate replace to="/login" />} path="/register" />
         <Route element={<RequireAuth />}>
@@ -138,8 +140,9 @@ function App() {
           <Route element={<UnauthorizedPage />} path="/unauthorized" />
         </Route>
         <Route element={<Navigate replace to="/dashboard" />} path="*" />
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </LicenseGate>
   )
 }
 

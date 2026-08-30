@@ -8,6 +8,8 @@ import type { ManagedDriver } from '../services/driverAdminService'
 import { ModalBody, ModalHeader, ModalPanel, ModalViewport } from '../components/ModalLayout'
 
 const initialForm = { full_name: '', username: '', email: '', phone: '', temporary_password: '', confirm: '' }
+const passwordStrengthPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).+$/
+const passwordPolicyMessage = 'Temporary password must be at least 8 characters and include uppercase, lowercase, number, and special character.'
 
 export function DriverManagementPage() {
   const { data = [], error, loading, reload } = useAsyncData(driverAdminService.list, [])
@@ -22,6 +24,7 @@ export function DriverManagementPage() {
   const createDriver = async (event: FormEvent) => {
     event.preventDefault()
     if (form.temporary_password !== form.confirm) return setActionError('Temporary passwords do not match.')
+    if (form.temporary_password.length < 8 || !passwordStrengthPattern.test(form.temporary_password)) return setActionError(passwordPolicyMessage)
     setBusy(true); setActionError('')
     try {
       await driverAdminService.create({ full_name: form.full_name, username: form.username, email: form.email, phone: form.phone, temporary_password: form.temporary_password, is_active: true })
@@ -42,8 +45,8 @@ export function DriverManagementPage() {
     {actionError && <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{actionError}</div>}
     {showForm && <Card className="mb-5" title="New Driver Account"><form className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={createDriver}>
       {[
-        ['full_name', 'Full name', 'Nimal Perera'], ['username', 'Username', 'driver.nimal'], ['email', 'Email', 'nimal@gmail.com'], ['phone', 'Phone number', '+94 77 123 4567'], ['temporary_password', 'Temporary password', 'Minimum 10 characters'], ['confirm', 'Confirm password', 'Repeat temporary password'],
-      ].map(([key, label, placeholder]) => <label className="text-sm font-semibold text-fleet-muted" key={key}>{label}<input className="mt-2 min-h-11 w-full rounded-lg border border-fleet-line px-3 text-fleet-ink" minLength={key.includes('password') || key === 'confirm' ? 10 : undefined} onChange={(event) => setForm({ ...form, [key]: event.target.value })} placeholder={placeholder} required={key !== 'phone'} type={key.includes('password') || key === 'confirm' ? 'password' : key === 'email' ? 'email' : 'text'} value={form[key as keyof typeof form]} /></label>)}
+        ['full_name', 'Full name', 'Nimal Perera'], ['username', 'Username', 'driver.nimal'], ['email', 'Email', 'nimal@gmail.com'], ['phone', 'Phone number', '+94 77 123 4567'], ['temporary_password', 'Temporary password', '8+ characters with upper/lowercase, number & symbol'], ['confirm', 'Confirm password', 'Repeat temporary password'],
+      ].map(([key, label, placeholder]) => <label className="text-sm font-semibold text-fleet-muted" key={key}>{label}<input className="mt-2 min-h-11 w-full rounded-lg border border-fleet-line px-3 text-fleet-ink" minLength={key.includes('password') || key === 'confirm' ? 8 : undefined} onChange={(event) => setForm({ ...form, [key]: event.target.value })} placeholder={placeholder} required={key !== 'phone'} type={key.includes('password') || key === 'confirm' ? 'password' : key === 'email' ? 'email' : 'text'} value={form[key as keyof typeof form]} /></label>)}
       <div className="flex items-end"><PrimaryButton disabled={busy} type="submit"><UserRoundCheck className="h-4 w-4" /> {busy ? 'Creating...' : 'Create Driver'}</PrimaryButton></div>
     </form></Card>}
     {drivers.length === 0 ? <EmptyState description="Create the first driver account, then the driver can enroll one Android device using the temporary credentials." title="No driver accounts" /> : <DataTable headers={['Driver / Username', 'Contact', 'Device', 'Assignment', 'Status', 'Actions']}>

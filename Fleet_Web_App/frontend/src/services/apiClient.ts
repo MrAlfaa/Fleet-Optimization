@@ -39,17 +39,45 @@ function buildUrl(path: string, query?: RequestOptions['query']) {
   return url.toString()
 }
 
+function validationErrorMessage(payload: unknown): string | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined
+
+  const response = payload as { data?: unknown; detail?: unknown }
+  const errors = Array.isArray(response.data)
+    ? response.data
+    : Array.isArray(response.detail)
+      ? response.detail
+      : []
+  const error = errors[0]
+  if (typeof error !== 'object' || error === null) return undefined
+
+  const issue = error as { loc?: unknown; msg?: unknown }
+  if (typeof issue.msg !== 'string') return undefined
+
+  const location = Array.isArray(issue.loc) ? issue.loc : []
+  const fieldName = [...location]
+    .reverse()
+    .find((part) => typeof part === 'string' && part !== 'body')
+  const fieldLabel = typeof fieldName === 'string'
+    ? fieldName.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase())
+    : 'Request'
+  const message = issue.msg.replace(/^Value error,\s*/i, '')
+  return `${fieldLabel}: ${message}`
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get('content-type') || ''
   const payload = contentType.includes('application/json') ? await response.json() : await response.text()
 
   if (!response.ok) {
-    const message =
-      typeof payload === 'object' && payload !== null && 'message' in payload
+    const responseMessage = typeof payload === 'object' && payload !== null && 'message' in payload
         ? String((payload as { message?: string }).message)
         : typeof payload === 'object' && payload !== null && 'detail' in payload
           ? String((payload as { detail?: string }).detail)
           : `Request failed with status ${response.status}`
+    const message = response.status === 422
+      ? validationErrorMessage(payload) ?? responseMessage
+      : responseMessage
 
     if (response.status === 401) {
       clearStoredSession()
