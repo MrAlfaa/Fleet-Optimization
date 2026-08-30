@@ -48,7 +48,7 @@ ssh -i "$SSH_KEY" ubuntu@"$API_HOST" \
    sudo systemctl is-active fleetopt-api.service'
 
 # Update the worker through the API jump host.
-PROXY_COMMAND="ssh -i $SSH_KEY -W %h:%p ubuntu@$API_HOST"
+PROXY_COMMAND="ssh -i \"$SSH_KEY\" -W %h:%p ubuntu@$API_HOST"
 git archive --format=tar HEAD backend | \
   ssh -o "ProxyCommand=$PROXY_COMMAND" -i "$SSH_KEY" \
   ubuntu@"$WORKER_HOST" \
