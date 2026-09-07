@@ -107,7 +107,10 @@ export function mapVehicle(raw: RecordLike): Vehicle {
     batteryCapacityKwh: asNumber(raw.battery_capacity_kwh),
     model: `${asString(raw.brand, 'EV')} ${asString(raw.model, 'Vehicle')}`.trim(),
     type: asString(raw.vehicle_type, 'EV'),
-    assignedDriver: asString(raw.assigned_driver_id, 'Unassigned'),
+    assignedDriver: asString(
+      raw.assigned_driver_name,
+      asString(raw.assigned_driver_username, 'Unassigned'),
+    ),
     mileage: asNumber(raw.current_mileage),
     status:
       status === 'retired'
