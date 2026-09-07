@@ -1,6 +1,8 @@
 import {
   Activity,
+  AlertTriangle,
   CalendarClock,
+  CheckCircle2,
   ClipboardCheck,
   DatabaseZap,
   Gauge,
@@ -9,9 +11,10 @@ import {
   Search,
   ShieldAlert,
   Wrench,
+  X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Card,
   DataTable,
@@ -23,24 +26,33 @@ import {
   PageHeader,
   PrimaryButton,
   RiskBadge,
+  SecondaryButton,
   StatusBadge,
 } from "../components/UI";
 import { MaintenanceRecordDialog } from "../components/MaintenanceRecordDialog";
+import { ModalBody, ModalFooter, ModalHeader, ModalPanel, ModalViewport } from "../components/ModalLayout";
+import { PredictionReviewDialog } from "../components/PredictionReviewDialog";
+import { assessmentWorkflowPresentation } from "../features/predictive/assessmentWorkflow";
 import { summarizeLatestFleetRisk } from "../features/predictive/maintenanceRisk";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { fleetService } from "../services/fleetService";
 import { authService } from "../services/authService";
 import { canAccess } from "../utils/permissions";
-import type { MaintenancePrediction } from "../types";
+import { showToast } from "../utils/toast";
+import type { AssessmentEligibility, MaintenancePrediction } from "../types";
 
 export function PredictiveRiskPage() {
+  const navigate = useNavigate();
   const currentUser = authService.getSession();
   const canRunAssessment = canAccess(currentUser, "predictive.run");
   const canManageMaintenance = canAccess(currentUser, "maintenance.manage");
   const [query, setQuery] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState("");
+  const [eligibilityResult, setEligibilityResult] = useState<{ vehicleId: string; value: AssessmentEligibility | null; error: string } | null>(null);
+  const [dialogError, setDialogError] = useState("");
+  const [showRequirements, setShowRequirements] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [showMaintenance, setShowMaintenance] = useState(false);
   const { data, error, loading, reload } = useAsyncData(async () => {
     const [status, predictions, vehicles, reviews] = await Promise.all([
@@ -66,27 +78,55 @@ export function PredictiveRiskPage() {
       ),
     [data, query],
   );
-  const selectedVehicle =
-    rows.find((vehicle) => vehicle.id === selectedVehicleId) ?? rows[0];
+  const selectedVehicle = (data?.vehicles ?? []).find(
+    (vehicle) => vehicle.id === selectedVehicleId,
+  );
   const selectedPrediction = selectedVehicle
     ? latestByVehicle.get(selectedVehicle.id)
     : undefined;
-  const selectedReviewId =
-    selectedPrediction?.reviewId ||
-    data?.reviews.find(
-      (review) => review.predictionId === selectedPrediction?.id,
-    )?.id ||
-    "";
+  const eligibility = eligibilityResult?.vehicleId === selectedVehicleId
+    ? eligibilityResult.value
+    : null;
+  const eligibilityLoading = Boolean(selectedVehicleId && eligibilityResult?.vehicleId !== selectedVehicleId);
+  const eligibilityError = eligibilityResult?.vehicleId === selectedVehicleId ? eligibilityResult.error : "";
+  const selectedReview = data?.reviews.find(
+    (review) => review.vehicleId === selectedVehicleId && (review.status === "pending" || review.status === "confirmed"),
+  ) ?? data?.reviews.find((review) => review.predictionId === selectedPrediction?.id);
+  const selectedReviewId = selectedPrediction?.reviewId || selectedReview?.id || "";
+  const workflow = eligibility
+    ? assessmentWorkflowPresentation(
+      eligibility,
+      selectedReview?.status ?? selectedPrediction?.reviewStatus ?? null,
+      selectedVehicle?.commissioningStatus === "pending",
+    )
+    : null;
+
+  useEffect(() => {
+    if (!selectedVehicleId) return;
+    let active = true;
+    fleetService.getAssessmentEligibility(selectedVehicleId)
+      .then((result) => { if (active) setEligibilityResult({ vehicleId: selectedVehicleId, value: result, error: "" }); })
+      .catch((reason) => {
+        if (!active) return;
+        const message = reason instanceof Error ? reason.message : "Unable to load assessment requirements";
+        setEligibilityResult({ vehicleId: selectedVehicleId, value: null, error: message });
+        setDialogError(message);
+      })
+    return () => { active = false; };
+  }, [selectedVehicleId, data?.predictions.length, data?.reviews.length]);
 
   const recalculate = async () => {
-    if (!selectedVehicle) return;
+    if (!selectedVehicle || !workflow?.runnable) {
+      if (selectedVehicle) setShowRequirements(true);
+      return;
+    }
     setBusy(true);
-    setActionError("");
     try {
       await fleetService.recalculateMaintenanceRisk(selectedVehicle.id);
       await reload();
+      showToast({ tone: "success", title: "Assessment updated", message: `${selectedVehicle.registrationNumber} now uses the latest operating evidence.` });
     } catch (reason) {
-      setActionError(
+      setDialogError(
         reason instanceof Error
           ? reason.message
           : "Unable to recalculate maintenance risk",
@@ -99,14 +139,13 @@ export function PredictiveRiskPage() {
   const requestReview = async () => {
     if (!selectedVehicle) return;
     setBusy(true);
-    setActionError("");
     try {
       await fleetService.recalculateMaintenanceRisk(selectedVehicle.id, {
         requestReview: true,
       });
       await reload();
     } catch (reason) {
-      setActionError(
+      setDialogError(
         reason instanceof Error
           ? reason.message
           : "Unable to request engineering review",
@@ -114,6 +153,34 @@ export function PredictiveRiskPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const runWorkflowAction = async () => {
+    if (!selectedVehicle || !workflow) return;
+    if (workflow.action === "run_assessment") return recalculate();
+    if (workflow.action === "complete_profile") return navigate(`/vehicles/${selectedVehicle.id}`);
+    if (workflow.action === "open_inspection_queue") return navigate("/maintenance/inspections");
+    if (workflow.action === "import_history") return navigate(`/vehicles/${selectedVehicle.id}?tab=maintenance`);
+    if (workflow.action === "review_assessment" && selectedReview) { setShowReview(true); return; }
+    if (workflow.action === "open_work_order") {
+      if (selectedReviewId && canManageMaintenance) setShowMaintenance(true);
+      else navigate("/maintenance/work-orders");
+      return;
+    }
+    if (workflow.action === "start_inspection") {
+      setBusy(true);
+      try {
+        await fleetService.createCommissioningInspection(selectedVehicle.id);
+        await reload();
+        navigate("/maintenance/inspections");
+      } catch (reason) {
+        setDialogError(reason instanceof Error ? reason.message : "Unable to start the initial inspection");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    setShowRequirements(true);
   };
 
   if (loading)
@@ -144,15 +211,17 @@ export function PredictiveRiskPage() {
               completed maintenance history. Missing history is listed in each
               vehicle&apos;s data quality details.
             </OperationalInfo>
-            {canRunAssessment && <PrimaryButton
-              disabled={busy || !selectedVehicle || !loaded}
-              onClick={recalculate}
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${busy ? "animate-spin motion-reduce:animate-none" : ""}`}
-              />
-              {busy ? "Recalculating..." : "Recalculate Risk"}
-            </PrimaryButton>}
+            {canRunAssessment && <span title={!selectedVehicle ? "Select a vehicle row before running risk calculation" : workflow?.description}>
+              <PrimaryButton
+                disabled={busy || eligibilityLoading || !selectedVehicle || !workflow?.runnable || !loaded}
+                onClick={recalculate}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${busy ? "animate-spin motion-reduce:animate-none" : ""}`}
+                />
+                {busy ? "Calculating risk..." : !selectedVehicle ? "Select vehicle to calculate" : workflow?.runnable ? workflow.label : "Risk calculation unavailable"}
+              </PrimaryButton>
+            </span>}
           </div>
         }
         description="Prioritize vehicles using server-derived mileage, trip, inspection, and maintenance history."
@@ -163,12 +232,10 @@ export function PredictiveRiskPage() {
         }
         title="Predictive Maintenance"
       />
-      {actionError && (
-        <div
-          className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700"
-          role="alert"
-        >
-          {actionError}
+      {!selectedVehicle && canRunAssessment && (
+        <div className="mb-5 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900">
+          <ClipboardCheck className="h-5 w-5 shrink-0 text-blue-700" />
+          Select one vehicle row below before running a risk assessment.
         </div>
       )}
       {held > 0 && (
@@ -265,11 +332,16 @@ export function PredictiveRiskPage() {
                     }
                   >
                     <td className="px-5 py-4">
-                      <div className="font-extrabold text-slate-950">
+                      <div className="flex items-center gap-3">
+                        <span aria-hidden="true" className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 ${selected ? "border-blue-600" : "border-slate-300"}`}>
+                          {selected && <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />}
+                        </span>
+                        <div><div className="font-extrabold text-slate-950">
                         {vehicle.registrationNumber}
-                      </div>
-                      <div className="text-xs font-semibold text-slate-500">
+                        </div>
+                        <div className="text-xs font-semibold text-slate-500">
                         {vehicle.vehicleCode} · {vehicle.category}
+                        </div></div>
                       </div>
                     </td>
                     <td className="px-5 py-4 font-extrabold">
@@ -339,6 +411,41 @@ export function PredictiveRiskPage() {
               {selectedVehicle?.registrationNumber ?? "Select a vehicle"}
             </p>
           </div>
+          {selectedVehicle && (
+            <div className="border-b border-slate-200 p-5">
+              {eligibilityLoading ? (
+                <div className="flex items-center gap-3 text-sm font-semibold text-slate-600">
+                  <RefreshCw className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                  Checking assessment workflow...
+                </div>
+              ) : eligibilityError || !workflow ? (
+                <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+                  <AlertTriangle className="h-5 w-5 shrink-0" />
+                  {eligibilityError || "Assessment workflow is unavailable."}
+                </div>
+              ) : (
+                <div className={`rounded-lg border p-4 ${workflow.tone === "red" ? "border-red-200 bg-red-50" : workflow.tone === "amber" ? "border-amber-200 bg-amber-50" : workflow.tone === "green" ? "border-emerald-200 bg-emerald-50" : "border-blue-200 bg-blue-50"}`}>
+                  <div className="flex items-start gap-3">
+                    {workflow.tone === "green" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" /> : <ClipboardCheck className={`mt-0.5 h-5 w-5 shrink-0 ${workflow.tone === "red" ? "text-red-700" : workflow.tone === "amber" ? "text-amber-700" : "text-blue-700"}`} />}
+                    <div className="min-w-0 flex-1">
+                      <div className="font-extrabold text-slate-950">{workflow.label}</div>
+                      <p className="mt-1 text-sm font-medium text-slate-700">{workflow.description}</p>
+                      {workflow.action !== "none" && (
+                        <button
+                          className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-slate-950 px-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                          disabled={busy}
+                          onClick={runWorkflowAction}
+                          type="button"
+                        >
+                          {busy ? "Working..." : workflow.label}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {selectedVehicle && selectedPrediction ? (
             <div className="space-y-5 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -439,8 +546,8 @@ export function PredictiveRiskPage() {
           ) : (
             <div className="p-5">
               <EmptyState
-                description="Run a server-derived calculation to establish the first risk snapshot."
-                title="No current prediction"
+                description={selectedVehicle ? "Follow the required action above to establish this vehicle's first risk snapshot." : "Choose one row from the fleet risk queue to view its workflow and current prediction."}
+                title={selectedVehicle ? "No current prediction" : "No vehicle selected"}
               />
             </div>
           )}
@@ -486,6 +593,52 @@ export function PredictiveRiskPage() {
           predictionReviewId={selectedReviewId || undefined}
           vehicle={selectedVehicle}
         />
+      )}
+      {showReview && selectedReview && (
+        <PredictionReviewDialog
+          onClose={() => setShowReview(false)}
+          onResolved={reload}
+          review={selectedReview}
+        />
+      )}
+      {showRequirements && eligibility && selectedVehicle && (
+        <ModalViewport>
+          <ModalPanel aria-modal="true" className="max-w-lg" role="dialog">
+            <ModalHeader className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-amber-600" />
+                <div>
+                  <h2 className="text-xl font-extrabold">More operating records are required</h2>
+                  <p className="mt-1 text-sm text-slate-500">{selectedVehicle.registrationNumber} cannot be assessed yet.</p>
+                </div>
+              </div>
+              <button aria-label="Close requirements" className="rounded-lg p-2 hover:bg-slate-100" onClick={() => setShowRequirements(false)} type="button"><X className="h-5 w-5" /></button>
+            </ModalHeader>
+            <ModalBody className="space-y-3">
+              {eligibility.blockingReasons.map((reason) => <div className="flex gap-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-950" key={reason}><AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />{reason}</div>)}
+              {eligibility.onboardingType === "brand_new" && eligibility.status === "building_history" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <SnapshotValue label="Completed trips" value={`${eligibility.requirements.completedTrips.current}/${eligibility.requirements.completedTrips.required}`} />
+                  <SnapshotValue label="Distance recorded" value={`${eligibility.requirements.recordedDistanceKm.current}/${eligibility.requirements.recordedDistanceKm.required} km`} />
+                </div>
+              )}
+              <p className="text-sm text-slate-600">Complete the listed evidence or select another vehicle that is ready for assessment.</p>
+            </ModalBody>
+            <ModalFooter>
+              <SecondaryButton onClick={() => { setShowRequirements(false); setSelectedVehicleId(""); }}>Select another vehicle</SecondaryButton>
+              <PrimaryButton onClick={() => navigate(`/vehicles/${selectedVehicle.id}?tab=risk-assessment`)}>View vehicle requirements</PrimaryButton>
+            </ModalFooter>
+          </ModalPanel>
+        </ModalViewport>
+      )}
+      {dialogError && (
+        <ModalViewport>
+          <ModalPanel aria-modal="true" className="max-w-md" role="alertdialog">
+            <ModalHeader className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-red-600" /><div><h2 className="text-xl font-extrabold">Assessment action could not be completed</h2><p className="mt-1 text-sm text-slate-500">Review the guidance before trying again.</p></div></ModalHeader>
+            <ModalBody><p className="rounded-lg bg-red-50 p-4 text-sm font-semibold text-red-800">{dialogError}</p></ModalBody>
+            <ModalFooter><PrimaryButton onClick={() => setDialogError("")}>Close</PrimaryButton></ModalFooter>
+          </ModalPanel>
+        </ModalViewport>
       )}
     </div>
   );
