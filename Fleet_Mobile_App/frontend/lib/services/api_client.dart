@@ -27,7 +27,7 @@ class ApiClient {
 
   static const _defaultBaseUrl = String.fromEnvironment(
     'FLEETOPT_API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:8000/api',
+    defaultValue: 'https://137-23-38-111.sslip.io/api',
   );
 
   final http.Client _client;

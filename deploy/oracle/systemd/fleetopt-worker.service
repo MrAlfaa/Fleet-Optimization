@@ -1,0 +1,25 @@
+[Unit]
+Description=FleetOpt load optimization worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fleetopt
+Group=fleetopt
+WorkingDirectory=/opt/fleetopt/backend
+EnvironmentFile=/etc/fleetopt/worker.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/fleetopt/worker-venv/bin/python -m app.workers.load_optimization_worker --poll-seconds 2
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

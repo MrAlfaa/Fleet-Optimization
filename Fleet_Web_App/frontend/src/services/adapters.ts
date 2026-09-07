@@ -31,7 +31,9 @@ const asNumber = (value: unknown, fallback = 0) => {
   return fallback
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/+$/, '')
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'https://137-23-38-111.sslip.io/api'
+).replace(/\/+$/, '')
 
 function mediaUrl(value: unknown): string | null {
   const path = asString(value)
@@ -105,7 +107,10 @@ export function mapVehicle(raw: RecordLike): Vehicle {
     batteryCapacityKwh: asNumber(raw.battery_capacity_kwh),
     model: `${asString(raw.brand, 'EV')} ${asString(raw.model, 'Vehicle')}`.trim(),
     type: asString(raw.vehicle_type, 'EV'),
-    assignedDriver: asString(raw.assigned_driver_id, 'Unassigned'),
+    assignedDriver: asString(
+      raw.assigned_driver_name,
+      asString(raw.assigned_driver_username, 'Unassigned'),
+    ),
     mileage: asNumber(raw.current_mileage),
     status:
       status === 'retired'
