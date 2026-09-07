@@ -63,7 +63,7 @@ class AppController extends ChangeNotifier {
       );
       enrolled = true;
       pinSetupRequired = true;
-    });
+    }, hydrateDriverData: false);
   }
 
   Future<void> configurePin(
@@ -308,13 +308,16 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> _runAuth(Future<void> Function() action) async {
+  Future<void> _runAuth(
+    Future<void> Function() action, {
+    bool hydrateDriverData = true,
+  }) async {
     loading = true;
     error = null;
     notifyListeners();
     try {
       await action();
-      if (user != null) {
+      if (hydrateDriverData && user != null) {
         await refreshDriverData(notifyLoading: false);
       }
     } on AuthException catch (exception) {
