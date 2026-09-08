@@ -7,7 +7,18 @@ FleetOpt AI is a research fleet-operations platform with:
 - a Flutter Android driver application;
 - predictive-maintenance, demand-forecasting, parcel-consolidation, load-balancing, route-dispatch, and live-trip workflows.
 
-This guide uses **Git Bash on Windows**. Run each service in a separate Git Bash terminal and keep the terminals open while using the platform.
+This guide runs the complete platform locally on Windows without the Oracle deployment. It uses **Git Bash on Windows**. Run each service in a separate Git Bash terminal and keep the terminals open while using the platform.
+
+## Local Service Layout
+
+| Component | Local address | Required for |
+|---|---|---|
+| FastAPI backend | `http://127.0.0.1:8000` | All web and mobile data operations |
+| React/Vite web app | `http://127.0.0.1:5173` | Administration workspace |
+| Load optimization worker | Background process | Candidate generation and load balancing |
+| Flutter driver app | Physical phone or Android emulator | Driver route and delivery workflows |
+
+Start the backend before the web app or Android app. The API and worker must use the same MongoDB database.
 
 ## 1. Prerequisites
 
@@ -19,7 +30,7 @@ Install the following tools before cloning the project:
 - Flutter 3.41 or a compatible stable release;
 - Android Studio or the Android SDK Platform Tools;
 - an Android phone with Developer Options and USB Debugging enabled;
-- access to the approved MongoDB deployment configuration.
+- access to a MongoDB Atlas database and its connection string.
 
 Verify the tools in Git Bash:
 
@@ -82,6 +93,9 @@ JWT_SECRET_KEY=<long-random-secret>
 MONGODB_TARGET_VALIDATION_ENABLED=true
 ALLOWED_MONGODB_HOSTS=<approved-host-without-credentials>
 ALLOWED_MONGODB_DATABASES=fleet_optimization
+
+# Local development must not use the hosted research access window.
+LICENSE_ENFORCEMENT_ENABLED=false
 ```
 
 Important:
@@ -90,6 +104,7 @@ Important:
 - `ALLOWED_MONGODB_HOSTS` contains only the host name, not the full URL or credentials.
 - The configured MongoDB host and database must match their allowlists.
 - Environment changes take effect only after restarting the backend.
+- Leave `LICENSE_ENFORCEMENT_ENABLED=false` for local development. An old hosted expiry setting can otherwise block the local login page.
 
 ## 4. Terminal 1 - Run the Backend API
 
@@ -134,6 +149,12 @@ cd "/e/PROJECTS/Out Source Project/Fleet-Optimization/Fleet_Web_App/frontend"
 cp .env.example .env
 npm ci
 npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Confirm that `Fleet_Web_App/frontend/.env` contains this local value:
+
+```dotenv
+VITE_API_BASE_URL=/api
 ```
 
 For later runs:
@@ -214,6 +235,16 @@ flutter run -d "$DEVICE_ID" --dart-define=FLEETOPT_API_BASE_URL=http://127.0.0.1
 
 Run `adb reverse tcp:8000 tcp:8000` again whenever the phone is disconnected, restarted, or reconnected.
 
+For an Android Studio emulator, `adb reverse` is not required. Use the Android emulator host address:
+
+```bash
+cd "/e/PROJECTS/Out Source Project/Fleet-Optimization/Fleet_Mobile_App/frontend"
+flutter pub get
+flutter emulators
+flutter emulators --launch <EMULATOR_ID>
+flutter run -d <EMULATOR_DEVICE_ID> --dart-define=FLEETOPT_API_BASE_URL=http://10.0.2.2:8000/api
+```
+
 ## 8. Recommended Startup Order
 
 Start the system in this order:
@@ -264,6 +295,16 @@ curl http://127.0.0.1:8000/api/health
 ```
 
 Then restart the Vite frontend.
+
+### Local page says the research access period ended
+
+Set the following value in `backend/.env`, stop the backend with `Ctrl+C`, and start it again:
+
+```dotenv
+LICENSE_ENFORCEMENT_ENABLED=false
+```
+
+The local development branch does not require the Oracle-hosted access window.
 
 ### Android app cannot reach the backend
 
