@@ -37,13 +37,14 @@ export function localizeZoneText(value: string) {
 }
 
 export const VEHICLE_CATEGORIES = [
-  { value: 'electric_van', label: 'Electric Van' },
-  { value: 'electric_truck', label: 'Electric Truck' },
-  { value: 'electric_car', label: 'Electric Car' },
-  { value: 'electric_bus', label: 'Electric Bus' },
-  { value: 'other', label: 'Other' },
+  { value: 'car', label: 'Car' },
+  { value: 'van', label: 'Van' },
+  { value: 'truck', label: 'Truck' },
+  { value: 'bus', label: 'Bus' },
 ] as const
 
 export function vehicleCategoryLabel(value: string) {
-  return VEHICLE_CATEGORIES.find((category) => category.value === value)?.label ?? value.replaceAll('_', ' ')
+  const normalized = value.toLowerCase()
+  return VEHICLE_CATEGORIES.find((category) => normalized === category.value || normalized.endsWith(`_${category.value}`))?.label
+    ?? value.replaceAll('_', ' ')
 }
