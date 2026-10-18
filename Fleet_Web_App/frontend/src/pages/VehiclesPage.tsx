@@ -27,7 +27,7 @@ export function VehiclesPage() {
     const items = vehicles ?? []
     return items.filter((vehicle) =>
       (risk === 'all' || vehicle.risk === risk)
-      && (category === 'all' || vehicle.type === category)
+      && (category === 'all' || vehicle.vehicleCategory === category)
       && (status === 'all' || vehicle.status === status),
     )
   }, [category, risk, status, vehicles])
