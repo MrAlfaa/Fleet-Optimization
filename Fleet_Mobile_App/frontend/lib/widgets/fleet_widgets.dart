@@ -28,6 +28,7 @@ class FleetButton extends StatelessWidget {
     this.icon,
     this.danger = false,
     this.filled = true,
+    this.loading = false,
   });
 
   final String label;
@@ -35,11 +36,29 @@ class FleetButton extends StatelessWidget {
   final IconData? icon;
   final bool danger;
   final bool filled;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
     final color = danger ? AppColors.critical : AppColors.primary;
-    final child = icon == null
+    final child = loading
+        ? Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(label),
+            ],
+          )
+        : icon == null
         ? Text(label)
         : Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -52,7 +71,7 @@ class FleetButton extends StatelessWidget {
           );
     if (!filled) {
       return OutlinedButton(
-        onPressed: onPressed,
+        onPressed: loading ? null : onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: color,
           side: BorderSide(color: color.withValues(alpha: 0.35)),
@@ -64,7 +83,7 @@ class FleetButton extends StatelessWidget {
       );
     }
     return FilledButton(
-      onPressed: onPressed,
+      onPressed: loading ? null : onPressed,
       style: FilledButton.styleFrom(
         backgroundColor: color,
         foregroundColor: Colors.white,

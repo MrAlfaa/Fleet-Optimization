@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.core.database import get_database
-from app.models.user_model import utc_now
+from app.models.user_model import USER_COLLECTION, utc_now
 from app.models.vehicle_model import VEHICLE_COLLECTION, build_vehicle_document, safe_vehicle_document
 from app.services.user_service import get_raw_user_by_id
 from app.services.vehicle_part_service import create_default_parts_for_vehicle
@@ -18,6 +18,45 @@ def get_vehicle_collection():
     if db is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="MongoDB is not configured or connected")
     return db[VEHICLE_COLLECTION]
+
+
+def enrich_vehicle_driver_details(
+    vehicle: dict[str, Any] | None,
+    users_by_id: dict[Any, dict[str, Any]],
+) -> dict[str, Any] | None:
+    if vehicle is None:
+        return None
+    enriched = vehicle.copy()
+    driver = users_by_id.get(vehicle.get("assigned_driver_id"))
+    if driver:
+        enriched["assigned_driver_name"] = str(driver.get("full_name") or "").strip() or None
+        enriched["assigned_driver_username"] = str(driver.get("username") or "").strip() or None
+    return enriched
+
+
+async def _enrich_vehicle_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    driver_ids = {
+        row.get("assigned_driver_id")
+        for row in rows
+        if row.get("assigned_driver_id") is not None
+    }
+    if not driver_ids:
+        return rows
+    database = get_database()
+    if database is None:
+        return rows
+    drivers = await database[USER_COLLECTION].find(
+        {"_id": {"$in": list(driver_ids)}, "role": "driver"},
+        {"full_name": 1, "username": 1},
+    ).to_list(length=len(driver_ids))
+    users_by_id = {driver["_id"]: driver for driver in drivers}
+    return [enrich_vehicle_driver_details(row, users_by_id) or row for row in rows]
+
+
+async def _safe_enriched_vehicle(vehicle: dict[str, Any] | None) -> dict[str, Any] | None:
+    if vehicle is None:
+        return None
+    return safe_vehicle_document((await _enrich_vehicle_rows([vehicle]))[0])
 
 
 async def _prepare_vehicle_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -47,7 +86,7 @@ async def create_vehicle(data: dict[str, Any], current_user: dict[str, Any]) -> 
 
     created = await get_vehicle_collection().find_one({"_id": result.inserted_id})
     await create_default_parts_for_vehicle(str(result.inserted_id))
-    return safe_vehicle_document(created)
+    return await _safe_enriched_vehicle(created)
 
 
 async def get_vehicle_by_id(vehicle_id: str) -> dict[str, Any] | None:
@@ -55,11 +94,11 @@ async def get_vehicle_by_id(vehicle_id: str) -> dict[str, Any] | None:
         object_id = validate_object_id(vehicle_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid vehicle ID") from exc
-    return safe_vehicle_document(await get_vehicle_collection().find_one({"_id": object_id}))
+    return await _safe_enriched_vehicle(await get_vehicle_collection().find_one({"_id": object_id}))
 
 
 async def get_vehicle_by_code(vehicle_code: str) -> dict[str, Any] | None:
-    return safe_vehicle_document(await get_vehicle_collection().find_one({"vehicle_code": vehicle_code.upper()}))
+    return await _safe_enriched_vehicle(await get_vehicle_collection().find_one({"vehicle_code": vehicle_code.upper()}))
 
 
 async def list_vehicles(
@@ -87,7 +126,8 @@ async def list_vehicles(
     collection = get_vehicle_collection()
     total = await collection.count_documents(query)
     cursor = collection.find(query).sort("created_at", -1).skip(calculate_skip(page, limit)).limit(limit)
-    items = serialize_mongo_list(await cursor.to_list(length=limit))
+    rows = await _enrich_vehicle_rows(await cursor.to_list(length=limit))
+    items = serialize_mongo_list(rows)
     return build_pagination_response(items, total, page, limit)
 
 
@@ -115,7 +155,7 @@ async def update_vehicle(vehicle_id: str, data: dict[str, Any]) -> dict[str, Any
 
     if result.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
-    return safe_vehicle_document(await get_vehicle_collection().find_one({"_id": object_id}))
+    return await _safe_enriched_vehicle(await get_vehicle_collection().find_one({"_id": object_id}))
 
 
 async def retire_vehicle(vehicle_id: str, current_user: dict[str, Any] | None = None, reason: str | None = None) -> dict[str, Any]:
@@ -135,7 +175,7 @@ async def retire_vehicle(vehicle_id: str, current_user: dict[str, Any] | None = 
     result = await get_vehicle_collection().update_one({"_id": object_id}, {"$set": update})
     if not result.matched_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
-    return safe_vehicle_document(await get_vehicle_collection().find_one({"_id": object_id}))
+    return await _safe_enriched_vehicle(await get_vehicle_collection().find_one({"_id": object_id}))
 
 
 async def restore_vehicle(vehicle_id: str) -> dict[str, Any]:
@@ -146,7 +186,7 @@ async def restore_vehicle(vehicle_id: str) -> dict[str, Any]:
     )
     if not result.matched_count:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only retired vehicles can be restored")
-    return safe_vehicle_document(await get_vehicle_collection().find_one({"_id": object_id}))
+    return await _safe_enriched_vehicle(await get_vehicle_collection().find_one({"_id": object_id}))
 
 
 async def delete_vehicle(vehicle_id: str) -> dict[str, Any]:
